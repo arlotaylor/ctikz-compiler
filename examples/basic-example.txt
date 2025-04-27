@@ -1,0 +1,10 @@
+$drawTriangle(3) = ltp($0,$1); ltp($0,$2); ltp($1,$2)
+
+
+$x =: c/p3
+$y =: s/p3
+$p1 = (0, 0)
+$p2 = ($x, 0)
+$p3 = ($x, $y)
+ $drawTriangle($p1,$p2,$p3)
+pil(_ltp($p1,$p3),_ltp($p2,_(0,$y)))

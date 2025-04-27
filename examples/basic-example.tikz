@@ -1,0 +1,9 @@
+\begin{tikzpicture}
+\filldraw[black] (0.000000,0.000000) circle (2pt);
+\filldraw[black] (0.500000,0.000000) circle (2pt);
+\filldraw[black] (0.500000,0.866025) circle (2pt);
+\draw (0.000000,0.000000) -- (0.500000,0.000000);
+\draw (0.000000,0.000000) -- (0.500000,0.866025);
+\draw (0.500000,0.000000) -- (0.500000,0.866025);
+\filldraw[black] (0.250000,0.433013) circle (2pt);
+\end{tikzpicture}
