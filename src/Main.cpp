@@ -6,9 +6,9 @@ int main()
     std::cout << "Enter filename (leave blank for examples):";
     std::string temp; std::getline(std::cin, temp);
 
-    if (temp == "") temp = "examples/basic-example.txt";
+    if (temp == "") temp = "../examples/basic-example.txt";
 
-    std::filesystem::path input = std::filesystem::current_path().parent_path() / temp;
+    std::filesystem::path input = std::filesystem::current_path() / temp;
     std::vector<std::pair<DrawableBase*,bool>> stuff = LoadDrawables(input);
     Diagram d;
     for (std::pair<DrawableBase*,bool> i : stuff)
