@@ -1,6 +1,6 @@
 #include "Compiler.h"
 #include <iostream>
-
+/*
 int main()
 {
     std::cout << "Enter filename (leave blank for examples):";
@@ -34,3 +34,4 @@ int main()
 
     return 0;
 }
+*/
