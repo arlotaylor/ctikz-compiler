@@ -10,17 +10,18 @@ enum class GrammarTypes
     Decimal,
     StringLit,
     Identifier,
+    Arguments,
+    FunctionCall,
+    ParenExpr,
+    ExpExpr,
+    MulExpr,
+    AddExpr,
+    EqExpr,
+    SetVarExpr,
     Expression,
     Statement,
     Block,
     Scope,
-    SetVarExpr,
-    EqExpr,
-    AddExpr,
-    MulExpr,
-    ExpExpr,
-    ParenExpr,
-    FunctionCall,
     IfStatement,
     WhileStatement,
     ForStatement,
@@ -103,10 +104,9 @@ template<> ASTGNode* Parse<GrammarTypes::Decimal>(const std::string& str, int po
             {
                 return GenerateParentNode(GrammarTypes::Decimal, {pos, v2->range.end}, v, v2);
             }
-            delete v2;
         }
+        delete v;
     }
-    delete v;
     return nullptr;
 }
 
@@ -138,6 +138,39 @@ template<> ASTGNode* Parse<GrammarTypes::Identifier>(const std::string& str, int
     return GenerateParentNode(GrammarTypes::Identifier, {pos, newpos});
 }
 
+template<> ASTGNode* Parse<GrammarTypes::Arguments>(const std::string& str, int pos)
+{
+    // this function doesn't fail, just returns empty arg string
+    ASTGNode* ret = GenerateParentNode(GrammarTypes::Arguments, {pos, pos - 1});
+    ASTGNode* prev = nullptr;
+
+    do
+    {
+        ASTGNode* next = Parse<GrammarTypes::Expression>(str, ret->range.end + 1);
+        if (next == nullptr)
+        {
+            break;
+        }
+
+        next->parent = ret;
+        if (prev == nullptr)  // first arg
+        {
+            ret->child = next;
+        }
+        else  // other arg
+        {
+            prev->right = next;
+            next->left = prev;
+        }
+        prev = next;
+        ret->range.end = next->range.end;
+    }
+    while (str[ret->range.end] == ',');
+
+    return ret;
+}
+
+
 template<> ASTGNode* Parse<GrammarTypes::FunctionCall>(const std::string& str, int pos)
 {
     ASTGNode* name = Parse<GrammarTypes::Identifier>(str, pos);
@@ -145,51 +178,26 @@ template<> ASTGNode* Parse<GrammarTypes::FunctionCall>(const std::string& str, i
     {
         if (str[name->range.end] == '(')
         {
-            ASTGNode* ret = GenerateParentNode(GrammarTypes::FunctionCall, {pos, -1});
-            if (str[name->range.end + 1] == ')')
+            ASTGNode* args = Parse<GrammarTypes::Arguments>(str, name->range.end + 1);
+            if (args != nullptr)  // should always be true
             {
-                // no args
-                ret->range.end = name->range.end + 2;
-                return ret;
-            }
-
-            // args
-            int newpos = name->range.end + 1;
-            ASTGNode* prevSib = nullptr;
-            do
-            {
-                ASTGNode* curSib = Parse<GrammarTypes::Expression>(str, newpos);
-                if (curSib == nullptr)
+                if (str[args->range.end] == ')')
                 {
-                    prevSib = nullptr;  // this will cause failure
-                    break;
+                    return GenerateParentNode(GrammarTypes::FunctionCall, {pos, args->range.end+1}, name, args);
                 }
-
-                curSib->parent = ret;
-                if (prevSib == nullptr)  // first arg
-                {
-                    ret->child = curSib;
-                }
-                else  // other arg
-                {
-                    prevSib->right = curSib;
-                    curSib->left = prevSib;
-                }
-                prevSib = curSib;
+                delete args;
             }
-            while (str[newpos] == ',');
-
-            if (prevSib != nullptr && str[newpos] == ')')
-            {
-                ret->range.end = newpos + 1;
-                return ret;
-            }
-
-            delete ret;
         }
+        delete name;
     }
+}
 
-    delete name;
+template<> ASTGNode* Parse<GrammarTypes::ParenExpr>(const std::string& str, int pos)
+{
+    if (str[pos] == '(')
+    {
+        
+    }
 }
 
 
