@@ -33,6 +33,36 @@ enum class GrammarType
     Lambda,
 };
 
+const std::vector<std::string> GRAMMAR_TYPE_NAMES = {
+    "Integer",
+    "Decimal",
+    "StringLit",
+    "Identifier",
+    "Arguments",
+    "FunctionCall",
+    "ParenExpr",
+    "ExpExpr",
+    "MulExpr",
+    "DivExpr",
+    "ModExpr",
+    "AddExpr",
+    "SubExpr",
+    "EqExpr",
+    "NeqExpr",  // no bitwise operations
+    "AndExpr",
+    "OrExpr",
+    "VarAssignment",
+    "Expression",  // set var first
+    "Statement",
+    "Block",
+    "Scope",
+    "IfStatement",
+    "WhileStatement",
+    "ForStatement",
+    "Lambda",
+};
+
+
 struct IntRange
 {
     int begin, end;
@@ -53,6 +83,37 @@ struct ASTGNode
         if (right != nullptr) delete right;
     }
 };
+
+std::string ASTGNodeToString(ASTGNode* node, const std::string& str)
+{
+    std::string ret = GRAMMAR_TYPE_NAMES[(int)node->type] + "{";
+    if (node->child != nullptr)
+    {
+        ret += ASTGNodeToString(node->child, str);
+    }
+    else
+    {
+        ret += str.substr(node->range.begin, node->range.end - node->range.begin);
+    }
+    ret += "}";
+    if (node->right != nullptr)
+    {
+        ret += ", ";
+        ret += ASTGNodeToString(node->right, str);
+    }
+    return ret;
+}
+
+ASTGNode* PrintNode(ASTGNode* node, const std::string& str, GrammarType caller, bool force = false)
+{
+    if (node == nullptr) return node;
+    if (force || false)
+    {
+        std::cout << GRAMMAR_TYPE_NAMES[(int)caller] << ": " << ASTGNodeToString(node, str) << std::endl;
+    }
+    return node;
+}
+
 
 ASTGNode* GenerateParentNode(GrammarType t, IntRange r)
 {
@@ -81,7 +142,6 @@ ASTGNode* GenerateParentNode(GrammarType t, IntRange r, ASTGNode* child1, Args..
     return parent;
 }
 
-
 template<GrammarType T> ASTGNode* Parse(const std::string& str, int pos) = delete;
 
 template<> ASTGNode* Parse<GrammarType::Integer>(const std::string& str, int pos)
@@ -91,7 +151,7 @@ template<> ASTGNode* Parse<GrammarType::Integer>(const std::string& str, int pos
         int newpos = pos + 1;
         while (std::isdigit(str[newpos])) newpos++;
 
-        return GenerateParentNode(GrammarType::Integer, {pos, newpos});
+        return PrintNode(GenerateParentNode(GrammarType::Integer, {pos, newpos}), str, GrammarType::Integer);
     }
     else
     {
@@ -109,7 +169,7 @@ template<> ASTGNode* Parse<GrammarType::Decimal>(const std::string& str, int pos
             ASTGNode* v2 = Parse<GrammarType::Integer>(str, v->range.end + 1);
             if (v2 != nullptr)
             {
-                return GenerateParentNode(GrammarType::Decimal, {pos, v2->range.end}, v, v2);
+                return PrintNode(GenerateParentNode(GrammarType::Decimal, {pos, v2->range.end}, v, v2), str, GrammarType::Decimal);
             }
         }
         delete v;
@@ -132,7 +192,7 @@ template<> ASTGNode* Parse<GrammarType::StringLit>(const std::string& str, int p
 
     if (str[newpos] != '"') return nullptr;
 
-    return GenerateParentNode(GrammarType::StringLit, {pos, newpos + 1});
+    return PrintNode(GenerateParentNode(GrammarType::StringLit, {pos, newpos + 1}), str, GrammarType::StringLit);
 }
 
 template<> ASTGNode* Parse<GrammarType::Identifier>(const std::string& str, int pos)
@@ -142,7 +202,7 @@ template<> ASTGNode* Parse<GrammarType::Identifier>(const std::string& str, int 
     int newpos = pos + 1;
     while (std::isalnum(str[newpos]) || str[newpos] == '_') newpos++;
 
-    return GenerateParentNode(GrammarType::Identifier, {pos, newpos});
+    return PrintNode(GenerateParentNode(GrammarType::Identifier, {pos, newpos}), str, GrammarType::Identifier);
 }
 
 
@@ -179,7 +239,7 @@ template<> ASTGNode* Parse<GrammarType::Arguments>(const std::string& str, int p
     while (str[ret->range.end] == ',');
 
     if (ret->range.begin > ret->range.end) ret->range.end = ret->range.begin;
-    return ret;
+    return PrintNode(ret, str, GrammarType::Arguments);
 }
 
 
@@ -195,7 +255,7 @@ template<> ASTGNode* Parse<GrammarType::FunctionCall>(const std::string& str, in
             {
                 if (str[args->range.end] == ')')
                 {
-                    return GenerateParentNode(GrammarType::FunctionCall, {pos, args->range.end+1}, name, args);
+                    return PrintNode(GenerateParentNode(GrammarType::FunctionCall, {pos, args->range.end+1}, name, args), str, GrammarType::FunctionCall);
                 }
                 delete args;
             }
@@ -216,7 +276,7 @@ template<> ASTGNode* Parse<GrammarType::ParenExpr>(const std::string& str, int p
         {
             if (str[expr->range.end] == ')')
             {
-                return GenerateParentNode(GrammarType::ParenExpr, {pos, expr->range.end+1}, expr);
+                return PrintNode(GenerateParentNode(GrammarType::ParenExpr, {pos, expr->range.end+1}, expr), str, GrammarType::ParenExpr);
             }
 
             delete expr;
@@ -224,20 +284,35 @@ template<> ASTGNode* Parse<GrammarType::ParenExpr>(const std::string& str, int p
         return nullptr;
     }
 
+    ASTGNode* dec = Parse<GrammarType::Decimal>(str, pos);  // this returns a different type, but maybe that's ok...
+    if (dec != nullptr)
+    {
+        return PrintNode(dec, str, GrammarType::ParenExpr);
+    }
+    ASTGNode* num = Parse<GrammarType::Integer>(str, pos);  // this returns a different type, but maybe that's ok...
+    if (num != nullptr)
+    {
+        return PrintNode(num, str, GrammarType::ParenExpr);
+    }
+    ASTGNode* strlit = Parse<GrammarType::StringLit>(str, pos);  // this returns a different type, but maybe that's ok...
+    if (strlit != nullptr)
+    {
+        return PrintNode(strlit, str, GrammarType::ParenExpr);
+    }
     ASTGNode* lambda = Parse<GrammarType::Lambda>(str, pos);  // this returns a different type, but maybe that's ok...
     if (lambda != nullptr)
     {
-        return lambda;
+        return PrintNode(lambda, str, GrammarType::ParenExpr);
     }
     ASTGNode* funcCall = Parse<GrammarType::FunctionCall>(str, pos);  // this returns a different type, but maybe that's ok...
     if (funcCall != nullptr)
     {
-        return funcCall;
+        return PrintNode(funcCall, str, GrammarType::ParenExpr);
     }
     ASTGNode* varRef = Parse<GrammarType::Identifier>(str, pos);
     if (varRef != nullptr)
     {
-        return varRef;
+        return PrintNode(varRef, str, GrammarType::ParenExpr);
     }
 
     return nullptr;
@@ -253,12 +328,12 @@ template<> ASTGNode* Parse<GrammarType::ExpExpr>(const std::string& str, int pos
             ASTGNode* rhs = Parse<GrammarType::ExpExpr>(str, lhs->range.end+1);
             if (rhs != nullptr)
             {
-                return GenerateParentNode(GrammarType::ExpExpr, {pos, rhs->range.end}, lhs, rhs);
+                return PrintNode(GenerateParentNode(GrammarType::ExpExpr, {pos, rhs->range.end}, lhs, rhs), str, GrammarType::ExpExpr);
             }
         }
         else
         {
-            return lhs;
+            return PrintNode(lhs, str, GrammarType::ExpExpr);
         }
         delete lhs;
     }
@@ -302,7 +377,7 @@ template<> ASTGNode* Parse<GrammarType::MulExpr>(const std::string& str, int pos
         }
         else
         {
-            return expr;
+            return PrintNode(expr, str, GrammarType::MulExpr);
         }
     }
 
@@ -337,7 +412,7 @@ template<> ASTGNode* Parse<GrammarType::AddExpr>(const std::string& str, int pos
         }
         else
         {
-            return expr;
+            return PrintNode(expr, str, GrammarType::AddExpr);
         }
     }
 
@@ -372,7 +447,7 @@ template<> ASTGNode* Parse<GrammarType::EqExpr>(const std::string& str, int pos)
         }
         else
         {
-            return expr;
+            return PrintNode(expr, str, GrammarType::EqExpr);
         }
     }
 
@@ -407,7 +482,7 @@ template<> ASTGNode* Parse<GrammarType::AndExpr>(const std::string& str, int pos
         }
         else
         {
-            return expr;
+            return PrintNode(expr, str, GrammarType::AndExpr);
         }
     }
 
@@ -426,7 +501,7 @@ template<> ASTGNode* Parse<GrammarType::VarAssignment>(const std::string& str, i
 
             if (val != nullptr)
             {
-                return GenerateParentNode(GrammarType::VarAssignment, {pos, val->range.end}, name, val);
+                return PrintNode(GenerateParentNode(GrammarType::VarAssignment, {pos, val->range.end}, name, val), str, GrammarType::VarAssignment);
             }
         }
         delete name;
@@ -439,7 +514,7 @@ template<> ASTGNode* Parse<GrammarType::Expression>(const std::string& str, int 
     ASTGNode* assign = Parse<GrammarType::VarAssignment>(str, pos);
     if (assign != nullptr)
     {
-        return assign;
+        return PrintNode(assign, str, GrammarType::Expression);
     }
     return Parse<GrammarType::AndExpr>(str, pos);
 }
@@ -474,7 +549,7 @@ template<> ASTGNode* Parse<GrammarType::Block>(const std::string& str, int pos)
         ret->range.end = next->range.end;
     }
 
-    return ret;
+    return PrintNode(ret, str, GrammarType::Block);
 
 }
 
@@ -487,7 +562,7 @@ template<> ASTGNode* Parse<GrammarType::Scope>(const std::string& str, int pos)
         {
             if (str[block->range.end] == '}')
             {
-                return GenerateParentNode(GrammarType::Scope, {pos, block->range.end + 1});
+                return PrintNode(GenerateParentNode(GrammarType::Scope, {pos, block->range.end + 1}, block), str, GrammarType::Scope);
             }
             delete block;
         }
@@ -507,7 +582,7 @@ template<> ASTGNode* Parse<GrammarType::IfStatement>(const std::string& str, int
                 ASTGNode* code = Parse<GrammarType::Scope>(str, check->range.end + 1);
                 if (code != nullptr)  // should always be true
                 {
-                    return GenerateParentNode(GrammarType::IfStatement, {pos, code->range.end}, check, code);
+                    return PrintNode(GenerateParentNode(GrammarType::IfStatement, {pos, code->range.end}, check, code), str, GrammarType::IfStatement);
                 }
             }
             delete check;
@@ -528,7 +603,7 @@ template<> ASTGNode* Parse<GrammarType::WhileStatement>(const std::string& str, 
                 ASTGNode* code = Parse<GrammarType::Scope>(str, check->range.end + 1);
                 if (code != nullptr)  // should always be true
                 {
-                    return GenerateParentNode(GrammarType::WhileStatement, {pos, code->range.end}, check, code);
+                    return PrintNode(GenerateParentNode(GrammarType::WhileStatement, {pos, code->range.end}, check, code), str, GrammarType::WhileStatement);
                 }
             }
             delete check;
@@ -559,7 +634,7 @@ template<> ASTGNode* Parse<GrammarType::ForStatement>(const std::string& str, in
                                 ASTGNode* code = Parse<GrammarType::Scope>(str, st3->range.end + 1);
                                 if (code != nullptr)  // should always be true
                                 {
-                                    return GenerateParentNode(GrammarType::ForStatement, {pos, code->range.end}, st1, st2, st3, code);
+                                    return PrintNode(GenerateParentNode(GrammarType::ForStatement, {pos, code->range.end}, st1, st2, st3, code), str, GrammarType::ForStatement);
                                 }
                             }
                             delete st3;
@@ -580,22 +655,22 @@ template<> ASTGNode* Parse<GrammarType::Statement>(const std::string& str, int p
     ASTGNode* scst = Parse<GrammarType::Scope>(str, pos);
     if (scst != nullptr)
     {
-        return scst;
+        return PrintNode(scst, str, GrammarType::Statement);
     }
     ASTGNode* ifst = Parse<GrammarType::IfStatement>(str, pos);
     if (ifst != nullptr)
     {
-        return ifst;
+        return PrintNode(ifst, str, GrammarType::Statement);
     }
     ASTGNode* whst = Parse<GrammarType::WhileStatement>(str, pos);
     if (whst != nullptr)
     {
-        return whst;
+        return PrintNode(whst, str, GrammarType::Statement);
     }
     ASTGNode* frst = Parse<GrammarType::ForStatement>(str, pos);
     if (frst != nullptr)
     {
-        return frst;
+        return PrintNode(frst, str, GrammarType::Statement);
     }
 
     ASTGNode* expr = Parse<GrammarType::Expression>(str, pos);
@@ -603,7 +678,7 @@ template<> ASTGNode* Parse<GrammarType::Statement>(const std::string& str, int p
     {
         if (str[expr->range.end] == ';')
         {
-            return GenerateParentNode(GrammarType::Statement, {pos, expr->range.end + 1});
+            return PrintNode(GenerateParentNode(GrammarType::Statement, {pos, expr->range.end + 1}, expr), str, GrammarType::Statement);
         }
         delete expr;
     }
@@ -622,7 +697,7 @@ template<> ASTGNode* Parse<GrammarType::Lambda>(const std::string& str, int pos)
                 ASTGNode* scope = Parse<GrammarType::Scope>(str, args->range.end + 1);
                 if (scope != nullptr)
                 {
-                    return GenerateParentNode(GrammarType::Lambda, {pos, scope->range.end});
+                    return PrintNode(GenerateParentNode(GrammarType::Lambda, {pos, scope->range.end}), str, GrammarType::Lambda);
                 }
             }
             delete args;
@@ -635,36 +710,6 @@ template<> ASTGNode* Parse<GrammarType::Lambda>(const std::string& str, int pos)
 
 
 
-const std::vector<std::string> GRAMMAR_TYPE_NAMES = {
-    "Integer",
-    "Decimal",
-    "StringLit",
-    "Identifier",
-    "Arguments",
-    "FunctionCall",
-    "ParenExpr",
-    "ExpExpr",
-    "MulExpr",
-    "DivExpr",
-    "ModExpr",
-    "AddExpr",
-    "SubExpr",
-    "EqExpr",
-    "NeqExpr",  // no bitwise operations
-    "AndExpr",
-    "OrExpr",
-    "VarAssignment",
-    "Expression",  // set var first
-    "Statement",
-    "Block",
-    "Scope",
-    "IfStatement",
-    "WhileStatement",
-    "ForStatement",
-    "Lambda",
-};
-
-
 
 
 
@@ -672,31 +717,14 @@ int main()
 {
     std::cout << "Enter mathematical expression: ";
     std::string expr; std::getline(std::cin, expr);
+    std::cout << "Recieved " << expr << ".\n";
 
     ASTGNode* program = Parse<GrammarType::Block>(expr, 0);
     if (program != nullptr)
     {
         ASTGNode* ptr = program;
 
-        while (ptr != nullptr)
-        {
-            std::cout << GRAMMAR_TYPE_NAMES[(int)ptr->type] << "{";
-            if (ptr->child == nullptr)
-            {
-                std::cout << expr.substr(ptr->range.begin, ptr->range.end - ptr->range.begin);
-
-                while (ptr != nullptr && ptr->right == nullptr) { std::cout << "}"; ptr = ptr->parent; }
-                if (ptr != nullptr)
-                {
-                    std::cout << ", ";
-                    ptr = ptr->right;
-                }
-            }
-            else
-            {
-                ptr = ptr->child;
-            }
-        }
+        std::cout << ASTGNodeToString(ptr, expr) << std::endl;
     }
     else
     {
