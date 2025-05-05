@@ -2,6 +2,52 @@
 #include <string>
 #include <iostream>  // for logging
 #include <vector>  // for reflections
+#include <map>
+
+#pragma region Lexer
+
+std::string RemoveStrings(std::string str)
+{
+    std::string ret = "";
+    for (int i = 0; i < str.size(); i++)
+    {
+        if (str[i] == ' ' || str[i] == '\n' || str[i] == '\t' || str[i] == '\r') continue;
+        ret += str[i];
+    }
+    return ret + " ";  // add one to the end as a buffer
+}
+
+#pragma endregion
+
+#pragma region Types
+
+enum class AtomicType
+{
+    Error = -1,
+    Void = 0,
+    Int,
+    Double,
+    String,
+    Drawable,
+};
+
+struct FunctionType;
+
+struct LanguageType
+{
+    AtomicType type = AtomicType::Error;
+    FunctionType* ftype = nullptr;
+};
+
+struct FunctionType
+{
+    LanguageType ret;
+    std::vector<LanguageType> args;
+}
+
+#pragma endregion
+
+#pragma region Compiler
 
 enum class GrammarType
 {
@@ -76,6 +122,8 @@ struct ASTGNode
     ASTGNode* left = nullptr;
     ASTGNode* right = nullptr;
     ASTGNode* child = nullptr;
+    LanguageType returnType = { AtomicType::Void };
+    int functionIndex = -1;
 
     ~ASTGNode() // it is the responsibility of parent or left to call this
     {
@@ -707,9 +755,77 @@ template<> ASTGNode* Parse<GrammarType::Lambda>(const std::string& str, int pos)
 }
 
 
+#pragma endregion
+
+#pragma region TypeChecker
+
+struct FunctionSignature
+{
+    std::string name;
+    std::vector<LanguageType> types; // first one is return type
+};
+
+const std::vector<FunctionSignature> s_BuiltinSignatures = {
+    { "__toInt", { { AtomicType::Double } } },
+    { "__toDouble", { { AtomicType::Int } } },
+    { "__operator+", { { AtomicType::Int }, { AtomicType::Int } } },
+    { "__operator+", { { AtomicType::Double }, { AtomicType::Double } } },
+    { "__operator+", { { AtomicType::String }, { AtomicType::String } } },
+};
+
+typedef std::pair<std::string, LanguageType> Variable;
+
+int SearchVars(const std::vector<Variable>& vars, std::string name)
+{
+    for (int i = 0; i < vars.size(); i++)
+    {
+        if (vars[i].first == name)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool TypeCheck(const std::string& str, ASTGNode* node, std::vector<Variable>& vars)
+{
+    bool ret = true;
+    if (node->type == GrammarType::Integer)
+    {
+        node->returnType = { AtomicType::Int };
+    }
+    else if (node->type == GrammarType::Decimal)
+    {
+        node->returnType = { AtomicType::Double };
+    }
+    else if (node->type == GrammarType::StringLit)
+    {
+        node->returnType = { AtomicType::String };
+    }
+    else if (node->type == GrammarType::Identifier)
+    {
+        int loc = SearchVars(vars, str.substr(node->range.begin, node->range.end - node->range.begin));
+        if (loc == -1)
+        {
+            node->returnType = { AtomicType::Error };
+        }
+        else
+        {
+            node->returnType = vars[loc].second;
+        }
+
+    }
 
 
 
+    if (node->right != nullptr)
+    {
+        ret = ret && TypeCheck(str, node->right);
+    }
+    return ret;
+}
+
+#pragma endregion
 
 
 
@@ -719,7 +835,7 @@ int main()
     std::string expr; std::getline(std::cin, expr);
     std::cout << "Recieved " << expr << ".\n";
 
-    ASTGNode* program = Parse<GrammarType::Block>(expr, 0);
+    ASTGNode* program = Parse<GrammarType::Block>(RemoveStrings(expr), 0);
     if (program != nullptr)
     {
         ASTGNode* ptr = program;
