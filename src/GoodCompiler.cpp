@@ -3,6 +3,7 @@
 #include <iostream>  // for logging
 #include <vector>  // for reflections
 #include <map>
+#include <variant>
 
 #pragma region Lexer
 
@@ -25,25 +26,45 @@ enum class AtomicType
 {
     Error = -1,
     Void = 0,
+    EndSum,
+    Template,
     Int,
     Double,
     String,
     Drawable,
 };
 
-struct FunctionType;
+struct UnionType; struct SumType; struct LambdaType;
 
-struct LanguageType
+typedef std::variant<AtomicType, UnionType*, SumType*, LambdaType*> LanguageType;
+
+struct UnionType
 {
-    AtomicType type = AtomicType::Error;
-    FunctionType* ftype = nullptr;
+    LanguageType a;
+    LanguageType b;
+
+    UnionType(LanguageType aa, LanguageType bb) : a(aa), b(bb)
+    {
+        if (std::holds_alternative<UnionType*>(aa)) std::cout << "Warning: Union Type should not contain Union type as first child.\n";
+    }
 };
 
-struct FunctionType
+struct SumType
 {
-    LanguageType ret;
-    std::vector<LanguageType> args;
-}
+    LanguageType a;
+    LanguageType b;
+
+    SumType(LanguageType aa, LanguageType bb) : a(aa), b(bb)
+    {
+        if (std::holds_alternative<SumType*>(aa)) std::cout << "Warning: Sum Type should not contain Sum type as first child.\n";
+    }
+};
+
+struct LambdaType
+{
+    LanguageType argumentType;
+    LanguageType returnType;
+};
 
 #pragma endregion
 
@@ -759,19 +780,44 @@ template<> ASTGNode* Parse<GrammarType::Lambda>(const std::string& str, int pos)
 
 #pragma region TypeChecker
 
-struct FunctionSignature
+struct VarSignature
 {
     std::string name;
-    std::vector<LanguageType> types; // first one is return type
+    LanguageType type;
 };
 
-const std::vector<FunctionSignature> s_BuiltinSignatures = {
-    { "__toInt", { { AtomicType::Double } } },
-    { "__toDouble", { { AtomicType::Int } } },
-    { "__operator+", { { AtomicType::Int }, { AtomicType::Int } } },
-    { "__operator+", { { AtomicType::Double }, { AtomicType::Double } } },
-    { "__operator+", { { AtomicType::String }, { AtomicType::String } } },
+const std::vector<VarSignature> s_BuiltinSignatures = {
+    { "__toInt", AtomicType::Double },
+    { "__toDouble", AtomicType::Int },
+    { "__operator+", new LambdaType{ new SumType{ AtomicType::Int, AtomicType::Int }, AtomicType::Int } },
+    { "__operator+", new LambdaType{ new SumType{ AtomicType::Double, AtomicType::Double }, AtomicType::Double } },
+    { "__operator+", new LambdaType{ new SumType{ AtomicType::String, AtomicType::String }, AtomicType::String } },
 };
+
+
+bool CheckCast(LanguageType a, LanguageType b)
+{
+    if (std::holds_alternative<AtomicType>(a) && std::get<AtomicType>(a) == AtomicType::Template) return true;
+    if (std::holds_alternative<AtomicType>(b) && std::get<AtomicType>(b) == AtomicType::Template) return true;
+
+    if (std::holds_alternative<AtomicType>(a) && std::holds_alternative<AtomicType>(b))
+    {
+        if (std::get<AtomicType>(a) == std::get<AtomicType>(b)) return true;
+        if (std::get<AtomicType>(a) == AtomicType::Int && std::get<AtomicType>(b) == AtomicType::Double) return true;
+        if (std::get<AtomicType>(a) == AtomicType::Double && std::get<AtomicType>(b) == AtomicType::Int) return true;
+    }
+
+    if (std::holds_alternative<UnionType*>(a) && std::holds_alternative<UnionType*>(b))
+    {
+        return CheckCast(std::get<UnionType*>(a)->a, std::get<UnionType*>(b)->a) && CheckCast(std::get<UnionType*>(a)->b, std::get<UnionType*>(b)->b);
+    }
+
+    if (std::holds_alternative<SumType*>(a) && std::holds_alternative<SumType*>(b))
+    {
+        return CheckCast(std::get<SumType*>(a)->a, std::get<SumType*>(b)->a) && CheckCast(std::get<SumType*>(a)->b, std::get<SumType*>(b)->b);
+    }
+
+}
 
 typedef std::pair<std::string, LanguageType> Variable;
 
