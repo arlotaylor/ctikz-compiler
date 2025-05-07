@@ -36,34 +36,64 @@ enum class AtomicType
 
 struct UnionType; struct SumType; struct LambdaType;
 
-typedef std::variant<AtomicType, UnionType*, SumType*, LambdaType*> LanguageType;
+typedef std::variant<AtomicType, UnionType, SumType, LambdaType> LanguageType;
 
 struct UnionType
 {
-    LanguageType a;
-    LanguageType b;
+    LanguageType* a;
+    LanguageType* b;
 
-    UnionType(LanguageType aa, LanguageType bb) : a(aa), b(bb)
+    UnionType(const LanguageType& aa, const LanguageType& bb)
     {
-        if (std::holds_alternative<UnionType*>(aa)) std::cout << "Warning: Union Type should not contain Union type as first child.\n";
+        if (std::holds_alternative<UnionType>(aa)) std::cout << "Warning: Union Type should not contain Union type as first child.\n";
+
+        a = new LanguageType{aa};
+        b = new LanguageType{bb};
+    }
+
+    ~UnionType()
+    {
+        delete a;
+        delete b;
     }
 };
 
 struct SumType
 {
-    LanguageType a;
-    LanguageType b;
+    LanguageType* a;
+    LanguageType* b;
 
-    SumType(LanguageType aa, LanguageType bb) : a(aa), b(bb)
+    SumType(const LanguageType& aa, const LanguageType& bb)
     {
-        if (std::holds_alternative<SumType*>(aa)) std::cout << "Warning: Sum Type should not contain Sum type as first child.\n";
+        a = new LanguageType{aa};
+        b = new LanguageType{bb};
+        // if (std::holds_alternative<SumType*>(aa)) std::cout << "Warning: Sum Type should not contain Sum type as first child.\n";
+        // you have to be careful here
+    }
+
+    ~SumType()
+    {
+        delete a;
+        delete b;
     }
 };
 
 struct LambdaType
 {
-    LanguageType argumentType;
-    LanguageType returnType;
+    LanguageType* argumentType;
+    LanguageType* returnType;
+
+    LambdaType(const LanguageType& aa, const LanguageType& bb)
+    {
+        argumentType = new LanguageType{aa};
+        returnType = new LanguageType{bb};
+    }
+
+    ~LambdaType()
+    {
+        delete argumentType;
+        delete returnType;
+    }
 };
 
 #pragma endregion
@@ -789,13 +819,13 @@ struct VarSignature
 const std::vector<VarSignature> s_BuiltinSignatures = {
     { "__toInt", AtomicType::Double },
     { "__toDouble", AtomicType::Int },
-    { "__operator+", new LambdaType{ new SumType{ AtomicType::Int, AtomicType::Int }, AtomicType::Int } },
-    { "__operator+", new LambdaType{ new SumType{ AtomicType::Double, AtomicType::Double }, AtomicType::Double } },
-    { "__operator+", new LambdaType{ new SumType{ AtomicType::String, AtomicType::String }, AtomicType::String } },
+    { "__operator+",  LambdaType{ SumType{ AtomicType::Int, AtomicType::Int }, AtomicType::Int } },
+    { "__operator+", LambdaType{ SumType{ AtomicType::Double, AtomicType::Double }, AtomicType::Double } },
+    { "__operator+", LambdaType{ SumType{ AtomicType::String, AtomicType::String }, AtomicType::String } },
 };
 
 
-bool CheckCast(LanguageType a, LanguageType b)
+bool CheckCast(const LanguageType& a, const LanguageType& b)
 {
     if (std::holds_alternative<AtomicType>(a) && std::get<AtomicType>(a) == AtomicType::Template) return true;
     if (std::holds_alternative<AtomicType>(b) && std::get<AtomicType>(b) == AtomicType::Template) return true;
@@ -807,25 +837,36 @@ bool CheckCast(LanguageType a, LanguageType b)
         if (std::get<AtomicType>(a) == AtomicType::Double && std::get<AtomicType>(b) == AtomicType::Int) return true;
     }
 
-    if (std::holds_alternative<UnionType*>(a) && std::holds_alternative<UnionType*>(b))
+    if (std::holds_alternative<UnionType>(a))
     {
-        return CheckCast(std::get<UnionType*>(a)->a, std::get<UnionType*>(b)->a) && CheckCast(std::get<UnionType*>(a)->b, std::get<UnionType*>(b)->b);
+        if (std::holds_alternative<UnionType>(b))
+        {
+            return CheckCast(a, *std::get<UnionType>(b).a) || CheckCast(a, *std::get<UnionType>(b).b);
+        }
+        else
+        {
+            return CheckCast(*std::get<UnionType>(a).a, b) || CheckCast(*std::get<UnionType>(a).b, b);
+        }
     }
 
-    if (std::holds_alternative<SumType*>(a) && std::holds_alternative<SumType*>(b))
+    if (std::holds_alternative<SumType>(a) && std::holds_alternative<SumType>(b))
     {
-        return CheckCast(std::get<SumType*>(a)->a, std::get<SumType*>(b)->a) && CheckCast(std::get<SumType*>(a)->b, std::get<SumType*>(b)->b);
+        return CheckCast(*std::get<SumType>(a).a, *std::get<SumType>(b).a) && CheckCast(*std::get<SumType>(a).b, *std::get<SumType>(b).b);
     }
 
+    if (std::holds_alternative<LambdaType>(a) && std::holds_alternative<LambdaType>(b))
+    {
+        return CheckCast(*std::get<LambdaType>(a).argumentType, *std::get<LambdaType>(b).argumentType) && CheckCast(*std::get<LambdaType>(a).returnType, *std::get<LambdaType>(b).returnType);
+    }
+
+    return false;
 }
 
-typedef std::pair<std::string, LanguageType> Variable;
-
-int SearchVars(const std::vector<Variable>& vars, std::string name)
+int SearchVars(const std::vector<VarSignature>& vars, std::string name)
 {
     for (int i = 0; i < vars.size(); i++)
     {
-        if (vars[i].first == name)
+        if (vars[i].name == name)
         {
             return i;
         }
