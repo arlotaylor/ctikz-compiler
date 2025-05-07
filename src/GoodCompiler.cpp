@@ -43,19 +43,9 @@ struct UnionType
     LanguageType* a;
     LanguageType* b;
 
-    UnionType(const LanguageType& aa, const LanguageType& bb)
-    {
-        if (std::holds_alternative<UnionType>(aa)) std::cout << "Warning: Union Type should not contain Union type as first child.\n";
+    UnionType(const LanguageType& aa, const LanguageType& bb);
 
-        a = new LanguageType{aa};
-        b = new LanguageType{bb};
-    }
-
-    ~UnionType()
-    {
-        delete a;
-        delete b;
-    }
+    ~UnionType();
 };
 
 struct SumType
@@ -63,19 +53,9 @@ struct SumType
     LanguageType* a;
     LanguageType* b;
 
-    SumType(const LanguageType& aa, const LanguageType& bb)
-    {
-        a = new LanguageType{aa};
-        b = new LanguageType{bb};
-        // if (std::holds_alternative<SumType*>(aa)) std::cout << "Warning: Sum Type should not contain Sum type as first child.\n";
-        // you have to be careful here
-    }
+    SumType(const LanguageType& aa, const LanguageType& bb);
 
-    ~SumType()
-    {
-        delete a;
-        delete b;
-    }
+    ~SumType();
 };
 
 struct LambdaType
@@ -83,18 +63,54 @@ struct LambdaType
     LanguageType* argumentType;
     LanguageType* returnType;
 
-    LambdaType(const LanguageType& aa, const LanguageType& bb)
-    {
-        argumentType = new LanguageType{aa};
-        returnType = new LanguageType{bb};
-    }
+    LambdaType(const LanguageType& aa, const LanguageType& bb);
 
-    ~LambdaType()
-    {
-        delete argumentType;
-        delete returnType;
-    }
+    ~LambdaType();
 };
+
+
+
+
+UnionType::UnionType(const LanguageType& aa, const LanguageType& bb)
+{
+    if (std::holds_alternative<UnionType>(aa)) std::cout << "Warning: Union Type should not contain Union type as first child.\n";
+
+    a = new LanguageType{aa};
+    b = new LanguageType{bb};
+}
+
+UnionType::~UnionType()
+{
+    delete a;
+    delete b;
+}
+
+SumType::SumType(const LanguageType& aa, const LanguageType& bb)
+{
+    a = new LanguageType{aa};
+    b = new LanguageType{bb};
+    // if (std::holds_alternative<SumType*>(aa)) std::cout << "Warning: Sum Type should not contain Sum type as first child.\n";
+    // you have to be careful here
+}
+
+SumType::~SumType()
+{
+    delete a;
+    delete b;
+}
+
+LambdaType::LambdaType(const LanguageType& aa, const LanguageType& bb)
+{
+    argumentType = new LanguageType{aa};
+    returnType = new LanguageType{bb};
+}
+
+LambdaType::~LambdaType()
+{
+    delete argumentType;
+    delete returnType;
+}
+
 
 #pragma endregion
 
@@ -173,7 +189,6 @@ struct ASTGNode
     ASTGNode* left = nullptr;
     ASTGNode* right = nullptr;
     ASTGNode* child = nullptr;
-    LanguageType returnType = { AtomicType::Void };
     int functionIndex = -1;
 
     ~ASTGNode() // it is the responsibility of parent or left to call this
@@ -813,7 +828,7 @@ template<> ASTGNode* Parse<GrammarType::Lambda>(const std::string& str, int pos)
 struct VarSignature
 {
     std::string name;
-    LanguageType type;
+    LanguageType type = AtomicType::Template;
 };
 
 const std::vector<VarSignature> s_BuiltinSignatures = {
@@ -824,49 +839,55 @@ const std::vector<VarSignature> s_BuiltinSignatures = {
     { "__operator+", LambdaType{ SumType{ AtomicType::String, AtomicType::String }, AtomicType::String } },
 };
 
-
-bool CheckCast(const LanguageType& a, const LanguageType& b)
+enum CheckCastOut
 {
-    if (std::holds_alternative<AtomicType>(a) && std::get<AtomicType>(a) == AtomicType::Template) return true;
-    if (std::holds_alternative<AtomicType>(b) && std::get<AtomicType>(b) == AtomicType::Template) return true;
+    Failure = 0,
+    Template = 1,
+    Success = 2,
+};
+
+CheckCastOut CheckCast(const LanguageType& a, const LanguageType& b)
+{
+    if (std::holds_alternative<AtomicType>(a) && std::get<AtomicType>(a) == AtomicType::Template) return CheckCastOut::Template;
+    if (std::holds_alternative<AtomicType>(b) && std::get<AtomicType>(b) == AtomicType::Template) return CheckCastOut::Template;
 
     if (std::holds_alternative<AtomicType>(a) && std::holds_alternative<AtomicType>(b))
     {
-        if (std::get<AtomicType>(a) == std::get<AtomicType>(b)) return true;
-        if (std::get<AtomicType>(a) == AtomicType::Int && std::get<AtomicType>(b) == AtomicType::Double) return true;
-        if (std::get<AtomicType>(a) == AtomicType::Double && std::get<AtomicType>(b) == AtomicType::Int) return true;
+        if (std::get<AtomicType>(a) == std::get<AtomicType>(b)) return CheckCastOut::Success;
+        if (std::get<AtomicType>(a) == AtomicType::Int && std::get<AtomicType>(b) == AtomicType::Double) return CheckCastOut::Success;
+        if (std::get<AtomicType>(a) == AtomicType::Double && std::get<AtomicType>(b) == AtomicType::Int) return CheckCastOut::Success;
     }
 
     if (std::holds_alternative<UnionType>(a))
     {
         if (std::holds_alternative<UnionType>(b))
         {
-            return CheckCast(a, *std::get<UnionType>(b).a) || CheckCast(a, *std::get<UnionType>(b).b);
+            return std::max(CheckCast(a, *std::get<UnionType>(b).a), CheckCast(a, *std::get<UnionType>(b).b));
         }
         else
         {
-            return CheckCast(*std::get<UnionType>(a).a, b) || CheckCast(*std::get<UnionType>(a).b, b);
+            return std::max(CheckCast(*std::get<UnionType>(a).a, b), CheckCast(*std::get<UnionType>(a).b, b));
         }
     }
 
     if (std::holds_alternative<SumType>(a) && std::holds_alternative<SumType>(b))
     {
-        return CheckCast(*std::get<SumType>(a).a, *std::get<SumType>(b).a) && CheckCast(*std::get<SumType>(a).b, *std::get<SumType>(b).b);
+        return std::min(CheckCast(*std::get<SumType>(a).a, *std::get<SumType>(b).a), CheckCast(*std::get<SumType>(a).b, *std::get<SumType>(b).b));
     }
 
     if (std::holds_alternative<LambdaType>(a) && std::holds_alternative<LambdaType>(b))
     {
-        return CheckCast(*std::get<LambdaType>(a).argumentType, *std::get<LambdaType>(b).argumentType) && CheckCast(*std::get<LambdaType>(a).returnType, *std::get<LambdaType>(b).returnType);
+        return std::min(CheckCast(*std::get<LambdaType>(a).argumentType, *std::get<LambdaType>(b).argumentType), CheckCast(*std::get<LambdaType>(a).returnType, *std::get<LambdaType>(b).returnType));
     }
 
-    return false;
+    return CheckCastOut::Failure;
 }
 
-int SearchVars(const std::vector<VarSignature>& vars, std::string name)
+int SearchVars(const std::vector<VarSignature>& vars, const VarSignature& elem)
 {
     for (int i = 0; i < vars.size(); i++)
     {
-        if (vars[i].name == name)
+        if (vars[i].name == elem.name && CheckCast(vars[i].type, elem.type) != CheckCastOut::Failure)
         {
             return i;
         }
@@ -874,42 +895,55 @@ int SearchVars(const std::vector<VarSignature>& vars, std::string name)
     return -1;
 }
 
-bool TypeCheck(const std::string& str, ASTGNode* node, std::vector<Variable>& vars)
+LanguageType TypeCheck(const std::string& str, ASTGNode* node, std::vector<VarSignature>& vars)
 {
-    bool ret = true;
     if (node->type == GrammarType::Integer)
     {
-        node->returnType = { AtomicType::Int };
+        return AtomicType::Int;
     }
     else if (node->type == GrammarType::Decimal)
     {
-        node->returnType = { AtomicType::Double };
+        return AtomicType::Double;
     }
     else if (node->type == GrammarType::StringLit)
     {
-        node->returnType = { AtomicType::String };
+        return AtomicType::String;
     }
     else if (node->type == GrammarType::Identifier)
     {
-        int loc = SearchVars(vars, str.substr(node->range.begin, node->range.end - node->range.begin));
+        int loc = SearchVars(vars, {str.substr(node->range.begin, node->range.end - node->range.begin)});
         if (loc == -1)
         {
-            node->returnType = { AtomicType::Error };
+            return AtomicType::Error;
         }
         else
         {
-            node->returnType = vars[loc].second;
+            return vars[loc].type;
         }
-
     }
-
-
-
-    if (node->right != nullptr)
+    else if (node->type == GrammarType::FunctionCall)
     {
-        ret = ret && TypeCheck(str, node->right);
+        if (node->left->type != GrammarType::Identifier) std::cout << "Error: Function call with invalid identifier???\n";
+
+        // todo: keep going
+        int loc = SearchVars(vars, {str.substr(node->left->range.begin, node->left->range.end - node->left->range.begin), TypeCheck(str, node->right, vars)});
+
+        LanguageType lt = TypeCheck(str, node->left, vars);
+        if (!std::holds_alternative<LambdaType>(lt))
+        {
+            return AtomicType::Error;
+        }
+        else
+        {
+            const LambdaType& lambdaType = std::get<LambdaType>(lt);
+            LanguageType argT = TypeCheck(str, node->right, vars);
+            if (!CheckCast(*lambdaType.argumentType, argT))
+            {
+                return AtomicType::Error;
+            }
+        }
     }
-    return ret;
+
 }
 
 #pragma endregion
