@@ -843,7 +843,8 @@ enum CheckCastOut
 {
     Failure = 0,
     Template = 1,
-    Success = 2,
+    Cast = 2,
+    Success = 3,
 };
 
 CheckCastOut CheckCast(const LanguageType& a, const LanguageType& b)
@@ -854,8 +855,8 @@ CheckCastOut CheckCast(const LanguageType& a, const LanguageType& b)
     if (std::holds_alternative<AtomicType>(a) && std::holds_alternative<AtomicType>(b))
     {
         if (std::get<AtomicType>(a) == std::get<AtomicType>(b)) return CheckCastOut::Success;
-        if (std::get<AtomicType>(a) == AtomicType::Int && std::get<AtomicType>(b) == AtomicType::Double) return CheckCastOut::Success;
-        if (std::get<AtomicType>(a) == AtomicType::Double && std::get<AtomicType>(b) == AtomicType::Int) return CheckCastOut::Success;
+        if (std::get<AtomicType>(a) == AtomicType::Int && std::get<AtomicType>(b) == AtomicType::Double) return CheckCastOut::Cast;
+        if (std::get<AtomicType>(a) == AtomicType::Double && std::get<AtomicType>(b) == AtomicType::Int) return CheckCastOut::Cast;
     }
 
     if (std::holds_alternative<UnionType>(a))
@@ -883,11 +884,174 @@ CheckCastOut CheckCast(const LanguageType& a, const LanguageType& b)
     return CheckCastOut::Failure;
 }
 
+
+template<typename T>
+struct LinkedListNode  // for some reason felt the need to implement a linked list...
+{
+    T elem;
+    int prev = -1;
+    int next = -1;
+};
+
+template<typename T>
+class LinkedList
+{
+    std::vector<LinkedListNode<T>>& container;
+    int headIndex = -1;
+    int tailIndex = -1;
+    int size = 0;
+
+public:
+    LinkedList(std::vector<LinkedListNode<T>>& vec, int head, int tail, int count)
+        : container(vec), headIndex(head), tailIndex(tail), size(count)
+    {
+    }
+
+    template<typename... Args>
+    void AddItems(const T& t, Args... args)
+    {
+        container.push_back({t});
+        if (headIndex == -1)
+        {
+            headIndex = container.size() - 1;
+            tailIndex = headIndex;
+        }
+        else
+        {
+            container.back().prev = tailIndex;
+            container[tailIndex].next = container.size() - 1;
+            tailIndex = container.size() - 1;
+        }
+        size++;
+        if constexpr(sizeof...(args) != 0)
+        {
+            AddItems(args...);
+        }
+    }
+
+    template<typename... Args>
+    LinkedList(std::vector<LinkedListNode<T>>& vec, const T& t, Args... args)
+        : container(vec)
+    {
+        AddItems(t, args...);
+    }
+
+    bool IsValid()
+    {
+        if (container[headIndex].prev != -1 || container[tailIndex].next != -1) return false;
+        return true;
+    }
+
+    int GetSize()
+    {
+        return size;
+    }
+
+    T& operator[](int index)
+    {
+        if (!IsValid()) std::cout << "Warning: a linked list should not be used after it has been added to another.\n";
+
+        LinkedListNode<T>& ll = container[headIndex];
+        for (int i = 0; i < index; i++)
+        {
+            ll = container[ll.next];
+        }
+        return ll.elem;
+    }
+
+    LinkedList<T> operator+(const LinkedList<T>& other)
+    {
+        if (!IsValid()) std::cout << "Warning: a linked list should not be used after it has been added to another.\n";
+
+        if (!other.IsValid()) std::cout << "Warning: a linked list should not be used after it has been added to another.\n";
+
+        // stitch together
+        container[tailIndex].next = other.headIndex;
+        container[other.headIndex].prev = tailIndex;
+
+        return { container, headIndex, other.tailIndex, GetSize() + other.GetSize() };
+    }
+
+    LinkedList<T> Copy()
+    {
+        if (!IsValid()) std::cout << "Warning: a linked list should not be used after it has been added to another.\n";
+
+        LinkedList<T> ret = { container, -1, -1, 0 };
+        LinkedListNode<T>& ll = container[headIndex];
+        while (true)
+        {
+            ret.AddItems(ll.elem);
+            if (ll.next == -1) break;
+            ll = container[ll.next];
+        }
+        return ret;
+    }
+};
+
+
+enum class InstructionType
+{
+    LoadValue,
+    RunFunction,
+    PopStack,
+    GotoIf,
+};
+
+struct Instruction
+{
+    InstructionType type;
+    int value;  // can be the value to load, the function to read, or the place to go to
+};
+
+
+struct ProgramContext
+{
+    std::vector<char> varStack;
+    std::vector<int> stackPtrs;
+
+    std::vector<char> exprStack;
+};
+
+
+void RunProgram(LinkedList<Instruction> inst, std::vector<char> initials)
+{
+    ProgramContext ctx = { initials, { initials.size() }, {} };
+
+    for (int instPtr = 0; instPtr < inst.size(); inst++)
+    {
+        switch (inst[instPtr].type)
+        {
+        case InstructionType::LoadValue:
+            // todo: keep going
+        break;
+        case InstructionType::RunFunction:
+        break;
+        case InstructionType::PopStack:
+            if (ctx.stackPtrs.size() <= 1) return;
+            while (ctx.varStack.size() > ctx.stackPtrs.back()) ctx.varStack.pop_back();
+            ctx.stackPtrs.pop_back();
+        break;
+        case InstructionType::GotoIf:
+            if (exprStack.back())
+            {
+                instPtr = inst[instPtr].value;
+            }
+            exprStack.pop_back();
+        break;
+        default: break;
+        }
+    }
+}
+
+
+
+
 int SearchVars(const std::vector<VarSignature>& vars, const VarSignature& elem, CheckCastOut* out = nullptr)
 {
     for (int i = 0; i < vars.size(); i++)
     {
-        CheckCastOut o = vars[i].name == elem.name && CheckCast(vars[i].type, elem.type);
+        if (vars[i].name != elem.name) continue;
+        CheckCastOut o = CheckCast(vars[i].type, elem.type);
         if (o != CheckCastOut::Failure)
         {
             if (out != nullptr) *out = o;
@@ -895,7 +1059,7 @@ int SearchVars(const std::vector<VarSignature>& vars, const VarSignature& elem, 
         }
     }
 
-    if (out != nullptr) *out = CheckCastOut::Error;
+    if (out != nullptr) *out = CheckCastOut::Failure;
     return -1;
 }
 
@@ -929,8 +1093,8 @@ LanguageType TypeCheck(const std::string& str, ASTGNode* node, std::vector<VarSi
     {
         if (node->left->type != GrammarType::Identifier) std::cout << "Error: Function call with invalid identifier???\n";
         LanguageType lt = TypeCheck(str, node->right, vars);
-        // todo: keep going
-        CheckCastOut locType = CheckCastOut::Error;
+
+        CheckCastOut locType = CheckCastOut::Failure;
         int loc = SearchVars(vars, {str.substr(node->left->range.begin, node->left->range.end - node->left->range.begin), LambdaType{ lt, AtomicType::Template } }, &locType);
         if (loc == -1)
         {
