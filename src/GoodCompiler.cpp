@@ -883,15 +883,19 @@ CheckCastOut CheckCast(const LanguageType& a, const LanguageType& b)
     return CheckCastOut::Failure;
 }
 
-int SearchVars(const std::vector<VarSignature>& vars, const VarSignature& elem)
+int SearchVars(const std::vector<VarSignature>& vars, const VarSignature& elem, CheckCastOut* out = nullptr)
 {
     for (int i = 0; i < vars.size(); i++)
     {
-        if (vars[i].name == elem.name && CheckCast(vars[i].type, elem.type) != CheckCastOut::Failure)
+        CheckCastOut o = vars[i].name == elem.name && CheckCast(vars[i].type, elem.type);
+        if (o != CheckCastOut::Failure)
         {
+            if (out != nullptr) *out = o;
             return i;
         }
     }
+
+    if (out != nullptr) *out = CheckCastOut::Error;
     return -1;
 }
 
@@ -924,18 +928,23 @@ LanguageType TypeCheck(const std::string& str, ASTGNode* node, std::vector<VarSi
     else if (node->type == GrammarType::FunctionCall)
     {
         if (node->left->type != GrammarType::Identifier) std::cout << "Error: Function call with invalid identifier???\n";
-
+        LanguageType lt = TypeCheck(str, node->right, vars);
         // todo: keep going
-        int loc = SearchVars(vars, {str.substr(node->left->range.begin, node->left->range.end - node->left->range.begin), TypeCheck(str, node->right, vars)});
-
-        LanguageType lt = TypeCheck(str, node->left, vars);
-        if (!std::holds_alternative<LambdaType>(lt))
+        CheckCastOut locType = CheckCastOut::Error;
+        int loc = SearchVars(vars, {str.substr(node->left->range.begin, node->left->range.end - node->left->range.begin), LambdaType{ lt, AtomicType::Template } }, &locType);
+        if (loc == -1)
         {
             return AtomicType::Error;
         }
+
+        LanguageType lt2 = vars[loc].type;
+        if (!std::holds_alternative<LambdaType>(lt2))
+        {
+            return AtomicType::Error;  // shouldn't ever run
+        }
         else
         {
-            const LambdaType& lambdaType = std::get<LambdaType>(lt);
+            const LambdaType& lambdaType = std::get<LambdaType>(lt2);
             LanguageType argT = TypeCheck(str, node->right, vars);
             if (!CheckCast(*lambdaType.argumentType, argT))
             {
