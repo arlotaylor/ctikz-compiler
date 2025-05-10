@@ -24,6 +24,19 @@ std::string RemoveStrings(std::string str)
 
 #pragma region Types
 
+// This language's types fall into five categories
+// Atomic Types, which are simple data (sometimes in TrackedPointers). This category also includes bookkeeping types like Error, Void and EndSum, as well as Template.
+// Unions, which are tagged unions, with one int beforehand to store the tag. These do not have to have different types, as the tag is just an index. These types can be cast to larger unions, or split, with the split operator.
+// Sums, which are record types. A sum can be cast to another sum if all elements cast accordingly. A sum type can be indexed into as well.
+// Lambdas, which are functions. Multiple arguments are represented as a sum. Can cast to another lambda where the arguments and return type cast accordingly. Can also curry???
+// Overloads, which are essentially sums, where each type is unique (up to casts) and can cast to any of its constituents. Can cast to a subset overload.
+
+// Basically the rules are the following, where sums are <a,b>, unions are <a|b>, lambdas are <a->b> and overloads are <a&b>:
+// if a casts to A:
+// 
+
+
+
 enum class AtomicType
 {
     Error = -1,
@@ -879,15 +892,6 @@ template<> ASTGNode* Parse<GrammarType::Lambda>(const std::string& str, int pos)
 
 #pragma region TypeChecker
 
-
-const std::vector<VarSignature> s_BuiltinSignatures = {
-    { "__toInt", AtomicType::Double },
-    { "__toDouble", AtomicType::Int },
-    { "__operator+",  LambdaType{ SumType{ AtomicType::Int, AtomicType::Int }, AtomicType::Int } },
-    { "__operator+", LambdaType{ SumType{ AtomicType::Double, AtomicType::Double }, AtomicType::Double } },
-    { "__operator+", LambdaType{ SumType{ AtomicType::String, AtomicType::String }, AtomicType::String } },
-};
-
 enum CheckCastOut
 {
     Failure = 0,
@@ -932,144 +936,6 @@ CheckCastOut CheckCast(const LanguageType& a, const LanguageType& b)
 
     return CheckCastOut::Failure;
 }
-
-
-template<typename T>
-struct LinkedListNode  // for some reason felt the need to implement a linked list...
-{
-    T elem;
-    int prev = -1;
-    int next = -1;
-};
-
-template<typename T>
-class LinkedList
-{
-    std::vector<LinkedListNode<T>>& container;
-    int headIndex = -1;
-    int tailIndex = -1;
-    int size = 0;
-
-public:
-    LinkedList(std::vector<LinkedListNode<T>>& vec, int head, int tail, int count)
-        : container(vec), headIndex(head), tailIndex(tail), size(count)
-    {
-    }
-
-    template<typename... Args>
-    void AddItems(const T& t, Args... args)
-    {
-        container.push_back({t});
-        if (headIndex == -1)
-        {
-            headIndex = container.size() - 1;
-            tailIndex = headIndex;
-        }
-        else
-        {
-            container.back().prev = tailIndex;
-            container[tailIndex].next = container.size() - 1;
-            tailIndex = container.size() - 1;
-        }
-        size++;
-        if constexpr(sizeof...(args) != 0)
-        {
-            AddItems(args...);
-        }
-    }
-
-    template<typename... Args>
-    LinkedList(std::vector<LinkedListNode<T>>& vec, const T& t, Args... args)
-        : container(vec)
-    {
-        AddItems(t, args...);
-    }
-
-    LinkedList(std::vector<LinkedListNode<T>>& vec)
-        : container(vec)
-    {
-    }
-
-    LinkedList<T>& operator=(const LinkedList<T>& other)
-    {
-        container = other.container;
-        headIndex = other.headIndex;
-        tailIndex = other.tailIndex;
-        size = other.size;
-        return *this;
-    }
-
-    std::vector<LinkedListNode<T>>& GetContainer()
-    {
-        return container;
-    }
-
-    bool IsValid() const
-    {
-        if (headIndex == -1) return false;
-        if (container[headIndex].prev != -1 || container[tailIndex].next != -1) return false;
-        return true;
-    }
-
-    int GetSize() const
-    {
-        return size;
-    }
-
-    T& operator[](int index)
-    {
-        if (!IsValid()) std::cout << "Warning: a linked list should not be used after it has been added to another.\n";
-
-        LinkedListNode<T>& ll = container[headIndex];
-        for (int i = 0; i < index; i++)
-        {
-            ll = container[ll.next];
-        }
-        return ll.elem;
-    }
-
-    LinkedList<T> operator+(const LinkedList<T>& other)
-    {
-        if (!IsValid())
-        {
-            if (!other.IsValid())
-            {
-                std::cout << "Warning: a linked list should not be used after it has been added to another.\n";
-            }
-            else
-            {
-                return other;
-            }
-        }
-        else if (!other.IsValid())
-        {
-            return *this;
-        }
-
-        // stitch together
-        container[tailIndex].next = other.headIndex;
-        container[other.headIndex].prev = tailIndex;
-
-        return { container, headIndex, other.tailIndex, GetSize() + other.GetSize() };
-    }
-
-    LinkedList<T> Copy()
-    {
-        if (headIndex == -1) return { container };
-
-        if (!IsValid()) std::cout << "Warning: a linked list should not be used after it has been added to another.\n";
-
-        LinkedList<T> ret = { container, -1, -1, 0 };
-        LinkedListNode<T>& ll = container[headIndex];
-        while (true)
-        {
-            ret.AddItems(ll.elem);
-            if (ll.next == -1) break;
-            ll = container[ll.next];
-        }
-        return ret;
-    }
-};
 
 
 enum class InstructionType
@@ -1249,6 +1115,23 @@ int GetTypeSize(LanguageType type)
     }
 }
 
+int SearchVars(const std::vector<VarSignature>& vars, const VarSignature& elem, CheckCastOut* out = nullptr)
+{
+    for (int i = 0; i < vars.size(); i++)
+    {
+        if (vars[i].name != elem.name) continue;
+        CheckCastOut o = CheckCast(vars[i].type, elem.type);
+        if (o != CheckCastOut::Failure)
+        {
+            if (out != nullptr) *out = o;
+            return i;
+        }
+    }
+
+    if (out != nullptr) *out = CheckCastOut::Failure;
+    return -1;
+}
+
 std::pair<LanguageType, LinkedList<Instruction>> GenerateBytecode(const std::string& str, ASTGNode* node, int nesting, std::map<std::string,std::pair<std::pair<int,int>, LanguageType>>& names, LinkedList<Instruction>& header, std::vector<uint8_t>& globals)
 {
     switch (node->type)
@@ -1309,6 +1192,71 @@ std::pair<LanguageType, LinkedList<Instruction>> GenerateBytecode(const std::str
             break;
         case GrammarType::FunctionCall:
             {
+                std::pair<LanguageType, LinkedList<Instruction>> idType = GenerateBytecode(str, node->child, nesting, names, header, globals);
+                std::pair<LanguageType, LinkedList<Instruction>> argType = GenerateBytecode(str, node->child->right, nesting, names, header, globals);
+                LanguageType lt = idType.first;
+                LanguageType& ty = lt;
+                LanguageType res = AtomicType::Error;
+                CheckCastOut cco = CheckCastOut::Failure;
+                bool shouldError = true;
+
+                while (true)
+                {
+                    if (std::holds_alternative<UnionType>(lt))
+                    {
+                        ty = *std::get<UnionType>(lt).a;
+                    }
+                    else
+                    {
+                        ty = lt;
+                    }
+
+                    if (std::holds_alternative<LambdaType>(ty))
+                    {
+                        CheckCastOut co = CheckCast(ty, LambdaType{ argType.first, *std::get<LambdaType>(ty).returnType });
+                        if (co == cco) shouldError = true;
+                        else if (co > cco)
+                        {
+                            shouldError = false;
+                            res = ty;
+                            cco = co;
+                        }
+                    }
+                    if (!std::holds_alternative<UnionType>(lt)) break;
+                    lt = *std::get<UnionType>(lt).b;
+                }
+
+                if (shouldError)
+                {
+                    std::cout << "Error: Too many matching casts in union.\n";
+                    return { AtomicType::Error, { header.GetContainer() } };
+                }
+
+                switch (cco)
+                {
+                    case CheckCastOut::Failure:
+                    {
+                        std::cout << "Error: No matching function signature.\n";
+                        return { AtomicType::Error, { header.GetContainer() } };
+                    }
+                    break;
+                    case CheckCastOut::Template:
+                    {
+
+                    }
+                    break;
+                    case CheckCastOut::Cast:
+                    {
+
+                    }
+                    break;
+                    case CheckCastOut::Success:
+                    {
+                        return { std::get<LambdaType>(res).returnType,  }
+                    }
+                    break;
+                    default: break;
+                }
             }
             break;
         case GrammarType::ParenExpr:
@@ -1527,22 +1475,7 @@ void RunProgram(LinkedList<Instruction> inst, std::vector<uint8_t> initials)
 
 
 
-int SearchVars(const std::vector<VarSignature>& vars, const VarSignature& elem, CheckCastOut* out = nullptr)
-{
-    for (int i = 0; i < vars.size(); i++)
-    {
-        if (vars[i].name != elem.name) continue;
-        CheckCastOut o = CheckCast(vars[i].type, elem.type);
-        if (o != CheckCastOut::Failure)
-        {
-            if (out != nullptr) *out = o;
-            return i;
-        }
-    }
 
-    if (out != nullptr) *out = CheckCastOut::Failure;
-    return -1;
-}
 
 LanguageType TypeCheck(const std::string& str, ASTGNode* node, std::vector<VarSignature>& vars)
 {
