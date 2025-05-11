@@ -87,7 +87,7 @@ std::vector<Token> Tokenize(std::string str)
             if (str[pos + 1] == str[pos]) pos += 1;
             ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), line, begin - lineStart });
         }
-        else if (str[pos] == ',')
+        else if (std::string(",()[]{}").find(str[pos]) != std::string::npos)
         {
             int begin = pos; pos += 1;
             ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), line, begin - lineStart });
