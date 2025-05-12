@@ -31,11 +31,11 @@ bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& 
 	{
 	    outExpr = LiteralExpression{ { AtomicType::Integer, tokens } };
 	}
-	else if (tokens[0].type == TokenType::Double)
+	else if (tokens[0].type == TokenType::Decimal)
 	{
 	    outExpr = LiteralExpression{ { AtomicType::Double, tokens } };
 	}
-	else if (tokens[0].type == TokenType::String)
+	else if (tokens[0].type == TokenType::StringLiteral)
 	{
 	    outExpr = LiteralExpression{ { AtomicType::String, tokens } };
 	}

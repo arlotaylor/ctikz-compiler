@@ -100,7 +100,7 @@ std::vector<Token> Tokenize(std::string str)
         }
     }
 
-    ret.push_back({ TokenType::EOF, "", line, pos - lineStart };
+    ret.push_back({ TokenType::EndOfFile, "", line, pos - lineStart });
     return ret;
 }
 

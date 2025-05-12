@@ -10,7 +10,7 @@ enum class TokenType
     Integer,
     Decimal,
     Boolean,
-    EOF
+    EndOfFile,
 };
 
 struct Token
