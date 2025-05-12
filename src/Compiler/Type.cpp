@@ -113,7 +113,10 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
                 int consumed = 0;
                 if (!ParseType(tokens.SubView(tokensConsumed), ctx, outType, consumed, TypeParsingPrecedence::Union))
                 {
-                    return false;
+                    if (recordVec.size() > 1) outType = RecordType{ recordVec };
+                    else outType = recordVec[0].Get();
+                    tokensConsumed -= 1;
+                    return true;
                 }
                 tokensConsumed += consumed;
                 recordVec.push_back({ outType });
@@ -137,7 +140,10 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
                 int consumed = 0;
                 if (!ParseType(tokens.SubView(tokensConsumed), ctx, outType, consumed, TypeParsingPrecedence::Overload))
                 {
-                    return false;
+                    if (unionVec.size() > 1) outType = UnionType{ unionVec };
+                    else outType = unionVec[0].Get();
+                    tokensConsumed -= 1;
+                    return true;
                 }
                 tokensConsumed += consumed;
                 unionVec.push_back({ outType });
@@ -161,7 +167,10 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
                 int consumed = 0;
                 if (!ParseType(tokens.SubView(tokensConsumed), ctx, outType, consumed, TypeParsingPrecedence::Lambda))
                 {
-                    return false;
+                    if (overloadVec.size() > 1) outType = OverloadType{ overloadVec };
+                    else outType = overloadVec[0].Get();
+                    tokensConsumed -= 1;
+                    return true;
                 }
                 tokensConsumed += consumed;
                 overloadVec.push_back({ outType });
@@ -183,7 +192,8 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
             Type t;
             if (!ParseType(tokens.SubView(tokensConsumed), ctx, t, consumed, TypeParsingPrecedence::Bracket))
             {
-                return false;
+                tokensConsumed -= 2;
+                break;
             }
             tokensConsumed += consumed;
             outType = LambdaType{ { outType }, { t } };

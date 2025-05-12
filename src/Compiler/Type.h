@@ -53,7 +53,7 @@ public:
 enum class AtomicType
 {
     Error, Void, Template,
-    Integer, Double, String,
+    Integer, Double, String, Boolean,
 };
 
 struct UnionType; struct OverloadType; struct RecordType; struct LambdaType;
@@ -91,7 +91,8 @@ struct ErrorOutput
 
 struct ParsingContext
 {
-    std::map<std::string, Type> typedefs = { { "int", AtomicType::Integer }, { "double", AtomicType::Double }, { "string", AtomicType::String } };
+    std::map<std::string, Type> typedefs = { { "int", AtomicType::Integer }, { "double", AtomicType::Double }, { "string", AtomicType::String }, { "bool", AtomicType::Boolean } };
+    std::vector<std::pair<std::string, Type>> varStack;
     std::vector<ErrorOutput> errors;
 };
 

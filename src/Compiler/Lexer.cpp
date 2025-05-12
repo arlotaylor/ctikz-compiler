@@ -22,7 +22,9 @@ std::vector<Token> Tokenize(std::string str)
         {
             int begin = pos;
             do { pos += 1; } while (std::isalnum(str[pos]) || str[pos] == '_');
-            ret.push_back({ TokenType::Text, str.substr(begin, pos - begin), line, begin - lineStart });
+
+	    std::string val = str.substr(begin, pos - begin);
+	    ret.push_back({ (val == "true" || val == "false") ? TokenType::Boolean : TokenType::Text, val, line, begin - lineStart });
         }
         else if (str[pos] == '"')
         {
@@ -98,6 +100,7 @@ std::vector<Token> Tokenize(std::string str)
         }
     }
 
+    ret.push_back({ TokenType::EOF, "", line, pos - lineStart };
     return ret;
 }
 

@@ -9,6 +9,8 @@ enum class TokenType
     StringLiteral,
     Integer,
     Decimal,
+    Boolean,
+    EOF
 };
 
 struct Token
