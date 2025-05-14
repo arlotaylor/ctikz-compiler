@@ -23,8 +23,8 @@ std::vector<Token> Tokenize(std::string str)
             int begin = pos;
             do { pos += 1; } while (std::isalnum(str[pos]) || str[pos] == '_');
 
-	    std::string val = str.substr(begin, pos - begin);
-	    ret.push_back({ (val == "true" || val == "false") ? TokenType::Boolean : TokenType::Text, val, line, begin - lineStart });
+            std::string val = str.substr(begin, pos - begin);
+            ret.push_back({ (val == "true" || val == "false") ? TokenType::Boolean : TokenType::Text, val, line, begin - lineStart });
         }
         else if (str[pos] == '"')
         {

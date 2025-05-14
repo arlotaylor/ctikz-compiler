@@ -22,6 +22,9 @@ struct VectorView
 
     inline const T& operator[](int i) { return vec[begin + i]; }
     inline VectorView SubView(int nb) { return { vec, begin + nb }; }
+
+    inline VectorView(const VectorView<T>& other) : vec(other.vec), begin(other.begin) {}
+    inline VectorView<T>& operator=(const VectorView<T>& other) { vec = other.vec; begin = other.begin; return *this; }
 };
 
 template<typename T>

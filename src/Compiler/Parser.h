@@ -6,18 +6,16 @@
 struct LiteralExpression; struct VariableExpression; struct BinaryExpression; struct UnaryExpression;
 typedef std::variant<LiteralExpression, VariableExpression, BinaryExpression, UnaryExpression> Expression;
 
-struct ExpressionBase
+struct LiteralExpression
 {
     Type type;
     VectorView<Token> vec;
 };
 
-struct LiteralExpression : public ExpressionBase
-{
-};
-
 struct VariableExpression
 {
+    Type type;
+    VectorView<Token> vec;
     int stackIndex;
 };
 
@@ -27,11 +25,13 @@ enum class BinaryExpressionType
     Add, Subtract, Multiply, Divide, Modulus, Exponentiate,
 };
 
-struct BinaryExpression : public ExpressionBase
+struct BinaryExpression
 {
-    BinaryExpressionType type;
-    HeapAlloc<LiteralExpression> a;
-    HeapAlloc<LiteralExpression> b;
+    Type type;
+    VectorView<Token> vec;
+    BinaryExpressionType exprType;
+    HeapAlloc<Expression> a;
+    HeapAlloc<Expression> b;
 };
 
 enum class UnaryExpressionType
@@ -39,12 +39,22 @@ enum class UnaryExpressionType
     Cast, Not, Minus, Plus,  // Cast is a UnaryExpressionType, but it is parsed when ExpressionParsingPrecedence is Cast, not Unary
 };
 
-struct UnaryExpression : public ExpressionBase
+struct UnaryExpression
 {
-    UnaryExpressionType type;
-    HeapAlloc<LiteralExpression> a;
+    Type type;
+    VectorView<Token> vec;
+    UnaryExpressionType exprType;
+    HeapAlloc<Expression> a;
 };
 
+inline Type GetExpressionType(const Expression& expr)
+{
+    if (std::holds_alternative<LiteralExpression>(expr)) return std::get<LiteralExpression>(expr).type;
+    if (std::holds_alternative<VariableExpression>(expr)) return std::get<VariableExpression>(expr).type;
+    if (std::holds_alternative<BinaryExpression>(expr)) return std::get<BinaryExpression>(expr).type;
+    if (std::holds_alternative<UnaryExpression>(expr)) return std::get<UnaryExpression>(expr).type;
+    return AtomicType::Error;
+}
 
 enum class ExpressionParsingPrecedence
 {
