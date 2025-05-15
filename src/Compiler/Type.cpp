@@ -107,7 +107,86 @@ bool CheckCast(Type from, Type to)
 {
     if (from == to) return true;
 
-    if ( // TODO: continue work here. Implement union and overload casting
+    if (std::holds_alternative<OverloadType>(from))  // overload from case
+    {
+        for (HeapAlloc<Type>& i : std::get<OverloadType>(from).values)
+        {
+            if (CheckCast(i.Get(), to)) return true;  // can cast an overload to one of its elements
+        }
+
+        if (std::holds_alternative<OverloadType>(to))  // casting an overload down
+        {
+            for (HeapAlloc<Type>& i : std::get<OverloadType>(to).values)
+            {
+                bool didMatch = false;
+                for (HeapAlloc<Type>& j : std::get<OverloadType>(from).values)
+                {
+                    if (i.Get() == j.Get())
+                    {
+                        didMatch = true;
+                        break;
+                    }
+                }
+                if (!didMatch) return false;  // new overload had a type that was not in the old overload
+            }
+            return true;  // new overload is a subset of the old overload
+        }
+        else
+        {
+            return false;  // nothing worked
+        }
+    }
+
+    if (std::holds_alternative<UnionType>(to))  // to union case
+    {
+        for (HeapAlloc<Type>& i : std::get<UnionType>(to).values)
+        {
+            if (CheckCast(from, i.Get())) return true;  // can cast to a union containing you
+        }
+
+        if (std::holds_alternative<UnionType>(from))  // casting a union up
+        {
+            for (HeapAlloc<Type>& i : std::get<UnionType>(from).values)
+            {
+                bool didMatch = false;
+                for (HeapAlloc<Type>& j : std::get<UnionType>(to).values)
+                {
+                    if (i.Get() == j.Get())
+                    {
+                        didMatch = true;
+                        break;
+                    }
+                }
+                if (!didMatch) return false;  // old union had a type that was not in the new overload
+            }
+            return true;  // old union is a subset of the new union
+        }
+        else
+        {
+            return false;  // nothing worked
+        }
+    }
+
+    if (std::holds_alternative<RecordType>(from))
+    {
+        if (std::holds_alternative<RecordType>(to))
+        {
+            if (std::get<RecordType>(from).values.size() == std::get<RecordType>(to).values.size())
+            {
+                for (int i = 0; i < std::get<RecordType>(from).values.size(); i++)
+                {
+                    if (!CheckCast(std::get<RecordType>(from).values[i].Get(), std::get<RecordType>(to).values[i].Get()))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     if (std::holds_alternative<AtomicType>(from))
     {
@@ -120,19 +199,9 @@ bool CheckCast(Type from, Type to)
             if ((fromVal == AtomicType::Integer || fromVal == AtomicType::Double || fromVal == AtomicType::Boolean)
              && (toVal == AtomicType::Integer || toVal == AtomicType::Double || toVal == AtomicType::Boolean)) return true;
         }
-        else if (std::holds_alternative<UnionType>(to))  // Unions cast to bigger unions
-        {
-            UnionType toVal = std::get<UnionType>(to);
 
-            for (int i = 0; i < toVal.values.size(); i++)
-            {
-                if (toVal.values[i].Get() == fromVal) return true;
-            }
-        }
-        // cannot cast to a larger overload or a record
+        return false;
     }
-
-
 
     return false;
 }

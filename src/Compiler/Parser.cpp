@@ -160,10 +160,16 @@ bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& 
                 Type ot;
                 if (ParseType(tokens.SubView(tokensConsumed + 1), ctx, ot, consumed))
                 {
-                    // TODO: check if the cast is valid
+                    if (!CheckCast(GetExpressionType(outExpr), ot)) return false;
+
                     tokensConsumed += 1 + consumed;
                     outExpr = UnaryExpression{ ot, tokens, UnaryExpressionType::Cast, { outExpr } };
                     return true;
+                }
+                else
+                {
+                    ctx.errors.push_back({ "Failed to parse type cast.", tokens[tokensConsumed + 1].line, tokens[tokensConsumed + 1].column });
+                    return false;
                 }
             }
         }
@@ -172,7 +178,43 @@ bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& 
             return true;
         }
     }
-    // todo: keep going here
+
+    if (ep == ExpressionParsingPrecedence::Exponentiate)
+    {
+        if (tokens[tokensConsumed].type == TokenType::Symbol && tokens[tokensConsumed].value == "^")
+        {
+            int consumed = 0;
+            Expression expr = LiteralExpression{ AtomicType::Error, tokens };
+            if (!ParseExpression(tokens.SubView(tokensConsumed + 1), ctx, expr, consumed, ExpressionParsingPrecedence::Exponentiate))
+            {
+                ctx.errors.push_back({ "Failed to parse expression.", tokens[tokensConsumed + 1].line, tokens[tokensConsumed + 1].column });
+                return false;
+            }
+            else
+            {
+                Type ot = AtomicType::Error;
+                if (GetExpressionType(outExpr) == AtomicType::Integer && GetExpressionType(expr) == AtomicType::Integer)
+                {
+                    ot = AtomicType::Integer;
+                }
+                else if (GetExpressionType(outExpr) == AtomicType::Double && GetExpressionType(expr) == AtomicType::Double)
+                {
+                    ot = AtomicType::Double;
+                }
+                else
+                {
+                    ctx.errors.push_back({ "Wrong types for '^' operation.", tokens[0].line, tokens[0].column });
+                }
+                tokensConsumed += 1 + consumed;
+                outExpr = BinaryExpression{ ot, tokens, BinaryExpressionType::Exponentiate, { outExpr }, { expr } };
+                return true;
+            }
+        }
+    }
+
+
+    // TODO: FINISH THIS PARSER
+    // TODO: IT'S SO CLOSE MAN
 }
 
 //    Assignment, Booleans, Equals, Add, Multiply, Exponentiate, Cast, Unary, Brackets, Literal, Variable,
