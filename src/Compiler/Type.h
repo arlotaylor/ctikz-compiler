@@ -64,16 +64,22 @@ typedef std::variant<AtomicType, UnionType, OverloadType, RecordType, LambdaType
 struct UnionType
 {
     std::vector<HeapAlloc<Type>> values;
+
+    UnionType(std::vector<HeapAlloc<Type>> v);
 };
 
 struct OverloadType
 {
     std::vector<HeapAlloc<Type>> values;
+
+    OverloadType(std::vector<HeapAlloc<Type>> v);
 };
 
 struct RecordType
 {
     std::vector<HeapAlloc<Type>> values;
+
+    RecordType(std::vector<HeapAlloc<Type>> v);
 };
 
 struct LambdaType
@@ -85,6 +91,7 @@ struct LambdaType
 bool operator==(const Type& a, const Type& b);
 bool operator!=(const Type& a, const Type& b);
 
+bool CheckCast(Type from, Type to);
 
 struct ErrorOutput
 {

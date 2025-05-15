@@ -1,7 +1,6 @@
 #include "Type.h"
 #include "Lexer.h"
 #include "Assertion.h"
-#include <memory>
 #include <variant>
 
 // This language's types fall into five categories
@@ -10,9 +9,52 @@
 // Sums, which are record types. A sum can be cast to another sum if all elements cast accordingly. A sum type can be indexed into as well.
 // Lambdas, which are functions. Multiple arguments are represented as a sum. Can cast to another lambda where the arguments and return type cast accordingly. Can also curry???
 // Overloads, which are essentially sums, where each type is unique (up to casts) and can cast to any of its constituents. Can cast to a subset overload.
+//
+// We do not allow unions, overloads and records to contain only one item. As it is (probably) impossible to define such a type, we do not provide a nice error, instead asserting that there be more than one value. In the case of unions and overloads, we allow redundant copies of types, but these are not retained after parsing.
 
 // Basically the rules are the following, where sums are <a,b>, unions are <a|b>, lambdas are <a->b> and overloads are <a&b>:
-// if a casts to A:
+
+UnionType::UnionType(std::vector<HeapAlloc<Type>> v)
+    : values(v)
+{
+    Assert(values.size() > 1, "How did you construct a union with less than two elements?");
+
+    for (int i = 0; i < values.size(); i++)
+    {
+        for (int j = i + 1; j < values.size(); j++)
+        {
+            if (values[i].Get() == values[j].Get())
+            {
+                values.erase(values.begin() + j);
+                j--;
+            }
+        }
+    }
+}
+
+OverloadType::OverloadType(std::vector<HeapAlloc<Type>> v)
+    : values(v)
+{
+    Assert(values.size() > 1, "How did you construct an overload with less than two elements?");
+
+    for (int i = 0; i < values.size(); i++)
+    {
+        for (int j = i + 1; j < values.size(); j++)
+        {
+            if (values[i].Get() == values[j].Get())
+            {
+                values.erase(values.begin() + j);
+                j--;
+            }
+        }
+    }
+}
+
+RecordType::RecordType(std::vector<HeapAlloc<Type>> v)
+    : values(v)
+{
+    Assert(values.size() > 1, "How did you construct a record with less than two elements?");
+}
 
 bool operator==(const Type& a, const Type& b)
 {
@@ -57,6 +99,42 @@ bool operator==(const Type& a, const Type& b)
 bool operator!=(const Type& a, const Type& b)
 {
     return !(a == b);
+}
+
+
+// Remember, Unions cast up, Overloads cast down.
+bool CheckCast(Type from, Type to)
+{
+    if (from == to) return true;
+
+    if ( // TODO: continue work here. Implement union and overload casting
+
+    if (std::holds_alternative<AtomicType>(from))
+    {
+        AtomicType fromVal = std::get<AtomicType>(from);
+
+        if (std::holds_alternative<AtomicType>(to))
+        {
+            AtomicType toVal = std::get<AtomicType>(to);
+
+            if ((fromVal == AtomicType::Integer || fromVal == AtomicType::Double || fromVal == AtomicType::Boolean)
+             && (toVal == AtomicType::Integer || toVal == AtomicType::Double || toVal == AtomicType::Boolean)) return true;
+        }
+        else if (std::holds_alternative<UnionType>(to))  // Unions cast to bigger unions
+        {
+            UnionType toVal = std::get<UnionType>(to);
+
+            for (int i = 0; i < toVal.values.size(); i++)
+            {
+                if (toVal.values[i].Get() == fromVal) return true;
+            }
+        }
+        // cannot cast to a larger overload or a record
+    }
+
+
+
+    return false;
 }
 
 

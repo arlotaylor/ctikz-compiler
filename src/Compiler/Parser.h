@@ -47,13 +47,20 @@ struct UnaryExpression
     HeapAlloc<Expression> a;
 };
 
-inline Type GetExpressionType(const Expression& expr)
+inline const Type& GetExpressionType(const Expression& expr)
 {
     if (std::holds_alternative<LiteralExpression>(expr)) return std::get<LiteralExpression>(expr).type;
     if (std::holds_alternative<VariableExpression>(expr)) return std::get<VariableExpression>(expr).type;
     if (std::holds_alternative<BinaryExpression>(expr)) return std::get<BinaryExpression>(expr).type;
-    if (std::holds_alternative<UnaryExpression>(expr)) return std::get<UnaryExpression>(expr).type;
-    return AtomicType::Error;
+    else return std::get<UnaryExpression>(expr).type;
+}
+
+inline Type& GetExpressionType(Expression& expr)
+{
+    if (std::holds_alternative<LiteralExpression>(expr)) return std::get<LiteralExpression>(expr).type;
+    if (std::holds_alternative<VariableExpression>(expr)) return std::get<VariableExpression>(expr).type;
+    if (std::holds_alternative<BinaryExpression>(expr)) return std::get<BinaryExpression>(expr).type;
+    else return std::get<UnaryExpression>(expr).type;
 }
 
 enum class ExpressionParsingPrecedence

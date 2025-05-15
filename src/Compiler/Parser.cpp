@@ -1,4 +1,6 @@
 #include "Parser.h"
+#include "Lexer.h"
+#include "Type.h"
 
 bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed, ExpressionParsingPrecedence ep)
 {
@@ -128,6 +130,48 @@ bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& 
 
     if (!ParseExpression(tokens, ctx, outExpr, tokensConsumed, (ExpressionParsingPrecedence)((int)ep + 1))) return false;
 
+    if (ep == ExpressionParsingPrecedence::Cast)
+    {
+        if (tokens[tokensConsumed].type == TokenType::Symbol && tokens[tokensConsumed].value == ":")
+        {
+            if (tokens[tokensConsumed + 1].type == TokenType::Symbol && tokens[tokensConsumed].value == ":")
+            {
+                int consumed = 0;
+                Type ot;
+                if (!ParseType(tokens.SubView(tokensConsumed + 2), ctx, ot, consumed))
+                {
+                    ctx.errors.push_back({ "Failed to parse type check.", tokens[tokensConsumed + 2].line, tokens[tokensConsumed + 2].column });
+                    return false;
+                }
+                else
+                {
+                    if (GetExpressionType(outExpr) != ot)
+                    {
+                        ctx.errors.push_back({ "Type check failed.", tokens[tokensConsumed + 2].line, tokens[tokensConsumed + 2].column });
+                        GetExpressionType(outExpr) = AtomicType::Error;
+                    }
+                    tokensConsumed += 2 + consumed;
+                    return true;
+                }
+            }
+            else
+            {
+                int consumed = 0;
+                Type ot;
+                if (ParseType(tokens.SubView(tokensConsumed + 1), ctx, ot, consumed))
+                {
+                    // TODO: check if the cast is valid
+                    tokensConsumed += 1 + consumed;
+                    outExpr = UnaryExpression{ ot, tokens, UnaryExpressionType::Cast, { outExpr } };
+                    return true;
+                }
+            }
+        }
+        else
+        {
+            return true;
+        }
+    }
     // todo: keep going here
 }
 
