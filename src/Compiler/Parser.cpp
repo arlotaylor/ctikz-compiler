@@ -25,19 +25,23 @@ template<ExpressionParsingPrecedence T> UnaryExpressionType GetUnaryType(std::st
 template<> UnaryExpressionType GetUnaryType<ExpressionParsingPrecedence::Unary>(std::string val) { return val == "!" ? UnaryExpressionType::Not : val == "-" ? UnaryExpressionType::Minus : UnaryExpressionType::Plus; };
 template<> UnaryExpressionType GetUnaryType<ExpressionParsingPrecedence::Cast>(std::string val) { return UnaryExpressionType::Cast; };
 
-template<ExpressionParsingPrecedence T> Type GetBinaryReturnType(BinaryExpressionType exp, Type t1, Type t2) = delete;
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Exponentiate>(BinaryExpressionType exp, Type t1, Type t2) { if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; }
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Multiply>(BinaryExpressionType exp, Type t1, Type t2) { if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; };
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Add>(BinaryExpressionType exp, Type t1, Type t2) { if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else if (t1 == AtomicType::String && t2 == AtomicType::String) { return AtomicType::String; } else { return AtomicType::Error; }; };
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Less>(BinaryExpressionType exp, Type t1, Type t2) { if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; };
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Equals>(BinaryExpressionType exp, Type t1, Type t2) { if (t1 == AtomicType::Error || t2 == AtomicType::Error) { return AtomicType::Error; } else if (t1 == t2) { return AtomicType::Boolean; } else { return AtomicType::Error; }; };
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Booleans>(BinaryExpressionType exp, Type t1, Type t2) { if (t1 == AtomicType::Boolean && t2 == AtomicType::Boolean) { return AtomicType::Boolean; } else { return AtomicType::Error; }; };
+#define TEMPCHECK if (t1 == AtomicType::Template || t2 == AtomicType::Template) return AtomicType::Template
 
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Cast>(BinaryExpressionType exp, Type t1, Type t2) { if (CheckCast(t1, t2)) { return t2; } else { return AtomicType::Error; }; };
+template<ExpressionParsingPrecedence T> Type GetBinaryReturnType(BinaryExpressionType exp, Type t1, Type t2) = delete;
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Exponentiate>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; }
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Multiply>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; };
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Add>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else if (t1 == AtomicType::String && t2 == AtomicType::String) { return AtomicType::String; } else { return AtomicType::Error; }; };
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Less>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; };
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Equals>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Error || t2 == AtomicType::Error) { return AtomicType::Error; } else if (t1 == t2) { return AtomicType::Boolean; } else { return AtomicType::Error; }; };
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Booleans>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Boolean && t2 == AtomicType::Boolean) { return AtomicType::Boolean; } else { return AtomicType::Error; }; };
+
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Cast>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (CheckCast(t1, t2)) { return t2; } else { return AtomicType::Error; }; };
 
 template<ExpressionParsingPrecedence T> Type GetUnaryReturnType(UnaryExpressionType exp, Type t1) = delete;
 template<> Type GetUnaryReturnType<ExpressionParsingPrecedence::Unary>(UnaryExpressionType exp, Type t1)
 {
+    if (t1 == AtomicType::Template) return t1;
+
     if (exp == UnaryExpressionType::Not)
     {
         if (t1 == AtomicType::Boolean) return AtomicType::Boolean;
@@ -278,7 +282,6 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
             }
             else
             {
-                Type ot = AtomicType::Error;
                 if (std::holds_alternative<VariableExpression>(outExpr))
                 {
                     if (std::get<VariableExpression>(outExpr).stackIndex == -1)
@@ -290,22 +293,17 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                         Type ot2 = GetExpressionType(outExpr);
                         if (ot2 == AtomicType::Template)
                         {
-                            ot = GetExpressionType(expr);
-                            ctx.varStack[std::get<VariableExpression>(outExpr).stackIndex].second = ot;
+                            ctx.varStack[std::get<VariableExpression>(outExpr).stackIndex].second = GetExpressionType(expr);
                         }
                         else if (ot2 != GetExpressionType(expr))
                         {
                             ctx.errors.push_back({ "Cannot set variable to an expression of a different type.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
                         }
-                        else
-                        {
-                            ot = GetExpressionType(expr);
-                        }
                     }
                 }
                 else  // outExpr must be a MultiVar
                 {
-                    if (!std::holds_alternative<RecordType>(ot))
+                    if (!std::holds_alternative<RecordType>(GetExpressionType(expr)))
                     {
                         ctx.errors.push_back({ "Attempted to set multiple variables with a single (non-record) expression.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
                     }
@@ -326,19 +324,28 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                                     int stackIndex = std::get<MultiVariableExpression>(outExpr).stackIndices[i];
                                     if (stackIndex != -1)
                                     {
-                                        ctx.varStack[stackIndex].second = // TODO: keep going here
+                                        ctx.varStack[stackIndex].second = std::get<RecordType>(GetExpressionType(expr)).values[i].Get();
+                                        isSetting = true;
                                     }
                                 }
                                 else
                                 {
                                     isSetting = true;
+                                    if (std::get<RecordType>(ot2).values[i].Get() != std::get<RecordType>(GetExpressionType(expr)).values[i].Get())
+                                    {
+                                        ctx.errors.push_back({ "Type mismatch during assignment.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+                                    }
                                 }
+                            }
+                            if (!isSetting)
+                            {
+                                ctx.errors.push_back({ "Cannot use '_' for every variable in assignment.", tokens[0].line, tokens[0].column });
                             }
                         }
                     }
                 }
-                outExpr = BinaryExpression{ ot, tokens, BinaryExpressionType::Assignment, { outExpr }, { expr } };
-                tokensConsumed = consumed;
+                outExpr = BinaryExpression{ GetExpressionType(expr), tokens, BinaryExpressionType::Assignment, { outExpr }, { expr } };
+                tokensConsumed += 1 + consumed;
                 return true;
             }
         }
