@@ -2,6 +2,7 @@
 #include "Lexer.h"
 #include "Type.h"
 #include <variant>
+#include <vector>
 
 template<ExpressionParsingPrecedence T> bool IsSymbolValid(std::string val) = delete;
 template<> bool IsSymbolValid<ExpressionParsingPrecedence::Unary>(std::string val) { return val == "!" || val == "-" || val == "+"; }
@@ -264,6 +265,58 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Exponentiate>(Vecto
         outExpr = BinaryExpression{ ot, tokens, ty, { outExpr }, { expr } };
     }
 
+    return true;
+}
+
+template<> bool ParseExpression<ExpressionParsingPrecedence::Overload>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
+{
+    std::vector<HeapAlloc<Expression>> exprs;
+    std::vector<HeapAlloc<Type>> types;
+    tokensConsumed = 0;
+
+    do
+    {
+        int consumed = 0;
+        if (!ParseExpression<ExpressionParsingPrecedence::Booleans>(tokens.SubView(tokensConsumed), ctx, outExpr, consumed)) return false;
+        exprs.push_back(outExpr);
+        types.push_back(GetExpressionType(outExpr));
+        tokensConsumed += consumed + 1;
+    }
+    while (tokens[tokensConsumed - 1].type == TokenType::Symbol && tokens[tokensConsumed - 1].value == "&");
+
+    tokensConsumed -= 1;
+    if (exprs.size() != 1)
+    {
+        outExpr = MultiExpression{ OverloadType{ types }, tokens, exprs };
+    }
+    return true;
+}
+
+template<> bool ParseExpression<ExpressionParsingPrecedence::Record>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
+{
+    std::vector<HeapAlloc<Expression>> exprs;
+    std::vector<HeapAlloc<Type>> types;
+    tokensConsumed = 1;
+
+    if (tokens[0].type != TokenType::Symbol || tokens[0].value != "{") return false;
+
+    do
+    {
+        int consumed = 0;
+        if (!ParseExpression<ExpressionParsingPrecedence::Overload>(tokens.SubView(tokensConsumed), ctx, outExpr, consumed)) return false;
+        exprs.push_back(outExpr);
+        types.push_back(GetExpressionType(outExpr));
+        tokensConsumed += consumed + 1;
+    }
+    while (tokens[tokensConsumed - 1].type == TokenType::Symbol && tokens[tokensConsumed - 1].value == ",");
+
+    tokensConsumed -= 1;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != "}") return false;
+
+    if (exprs.size() != 1)
+    {
+        outExpr = MultiExpression{ RecordType{ types }, tokens, exprs };
+    }
     return true;
 }
 
