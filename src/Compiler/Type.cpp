@@ -234,7 +234,7 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
     }
     else if (tp == TypeParsingPrecedence::Bracket && tokens[0].type == TokenType::Symbol && tokens[0].value == "(")
     {
-        if (!ParseType(tokens.SubView(1), ctx, outType, tokensConsumed)) return false;
+        if (!ParseType(tokens.SubView(1), ctx, outType, tokensConsumed, TypeParsingPrecedence::Record)) return false;
         if (tokens[tokensConsumed + 1].type != TokenType::Symbol || tokens[tokensConsumed + 1].value != ")")
         {
             ctx.errors.push_back({ "No closing bracket.", tokens[0].line, tokens[0].column });
@@ -399,24 +399,5 @@ std::string TypeToString(Type t)
         return "Lambda{" + TypeToString(std::get<LambdaType>(t).arg.Get()) + "," + TypeToString(std::get<LambdaType>(t).ret.Get()) + "}";
     }
     return "huh?";
-}
-
-int main()
-{
-    while (true)
-    {
-        std::cout << "Enter possible type: ";
-        std::string temp; std::getline(std::cin, temp);
-
-        std::vector<Token> tokens = Tokenize(temp);
-        for (Token& i : tokens)
-        {
-             std::cout << i.value << std::endl;
-        }
-        ParsingContext pc; Type t; int n = 0;
-        std::cout << (ParseType({tokens, 0}, pc, t, n) ? "Parsing worked!" : "Parsing failed.") << std::endl;
-        std::cout << TypeToString(t) << std::endl;
-        std::cout << n << " tokens parsed." << std::endl;
-    }
 }
 

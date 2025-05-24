@@ -86,17 +86,17 @@ std::vector<Token> Tokenize(std::string str)
         else if (std::string("&|").find(str[pos]) != std::string::npos)
         {
             int begin = pos; pos += 1;
-            if (str[pos + 1] == str[pos]) pos += 1;
+            if (str[pos] == str[pos - 1]) pos += 1;
             ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), line, begin - lineStart });
         }
-        else if (std::string(",()[]{}_").find(str[pos]) != std::string::npos)
+        else if (std::string(",()[]{}_:").find(str[pos]) != std::string::npos)
         {
             int begin = pos; pos += 1;
             ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), line, begin - lineStart });
         }
         else
         {
-            Assert(false, "Unrecognized symbol.", line, pos - lineStart);
+            Assert(false, "Unrecognized symbol." + str.substr(pos), line, pos - lineStart);
         }
     }
 

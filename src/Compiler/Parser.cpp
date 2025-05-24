@@ -1,8 +1,9 @@
 #include "Parser.h"
 #include "Lexer.h"
 #include "Type.h"
+#include <stack>
 #include <variant>
-#include <vector>
+#include <iostream>
 
 template<ExpressionParsingPrecedence T> bool IsSymbolValid(std::string val) = delete;
 template<> bool IsSymbolValid<ExpressionParsingPrecedence::Unary>(std::string val) { return val == "!" || val == "-" || val == "+"; }
@@ -134,10 +135,15 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Literal>(VectorView
     {
         outExpr = LiteralExpression{ AtomicType::String, tokens };
     }
+    else if (tokens[0].type == TokenType::Boolean)
+    {
+        outExpr = LiteralExpression{ AtomicType::Boolean, tokens };
+    }
     else
     {
         return ParseExpression<ExpressionParsingPrecedence::Variable>(tokens, ctx, outExpr, tokensConsumed);
     }
+    tokensConsumed = 1;
     return true;
 }
 
@@ -145,7 +151,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Brackets>(VectorVie
 {
     if (tokens[0].type == TokenType::Symbol && tokens[0].value == "(")
     {
-        if (!ParseExpression<ExpressionParsingPrecedence::Literal>(tokens.SubView(1), ctx, outExpr, tokensConsumed)) return false;
+        if (!ParseExpression(tokens.SubView(1), ctx, outExpr, tokensConsumed)) return false;
         if (tokens[tokensConsumed + 1].type != TokenType::Symbol || tokens[tokensConsumed + 1].value != ")")
         {
             ctx.errors.push_back({ "No matching ).", tokens[0].line, tokens[0].column });
@@ -187,9 +193,48 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Unary>(VectorView<T
     }
 }
 
-template<> bool ParseExpression<ExpressionParsingPrecedence::Cast>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
+template<> bool ParseExpression<ExpressionParsingPrecedence::FunctionCall>(VectorView<Token> tokens, ParsingContext &ctx, Expression &outExpr, int &tokensConsumed)
 {
     if (!ParseExpression<ExpressionParsingPrecedence::Unary>(tokens, ctx, outExpr, tokensConsumed)) return false;
+
+    if (tokens[tokensConsumed].type == TokenType::Symbol && tokens[tokensConsumed].value == "(")
+    {
+        int consumed = 0;
+        Expression expr = LiteralExpression{ AtomicType::Error, tokens };
+        if (!ParseExpression(tokens.SubView(tokensConsumed + 1), ctx, expr, consumed))
+        {
+            return false;
+        }
+        else if (tokens[tokensConsumed + 1 + consumed].type != TokenType::Symbol || tokens[tokensConsumed + 1 + consumed].value != ")")
+        {
+            return false;
+        }
+        else if (!std::holds_alternative<LambdaType>(GetExpressionType(outExpr)))
+        {
+            ctx.errors.push_back({ "Cannot call a non-lambda type.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+            GetExpressionType(outExpr) = AtomicType::Error;
+        }
+        else if (std::get<LambdaType>(GetExpressionType(outExpr)).arg.Get() != GetExpressionType(expr))
+        {
+            ctx.errors.push_back({ "Invalid function arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+            GetExpressionType(outExpr) = AtomicType::Error;
+        }
+        else
+        {
+            outExpr = BinaryExpression{ std::get<LambdaType>(GetExpressionType(outExpr)).ret.Get(), tokens, BinaryExpressionType::FunctionCall, { outExpr }, { expr } };
+        }
+        tokensConsumed += 2 + consumed;
+        return true;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+template<> bool ParseExpression<ExpressionParsingPrecedence::Cast>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
+{
+    if (!ParseExpression<ExpressionParsingPrecedence::FunctionCall>(tokens, ctx, outExpr, tokensConsumed)) return false;
 
     std::string val = tokens[tokensConsumed].value;
     if (tokens[tokensConsumed].type == TokenType::Symbol && IsSymbolValid<ExpressionParsingPrecedence::Cast>(val))
@@ -287,7 +332,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Overload>(VectorVie
     tokensConsumed -= 1;
     if (exprs.size() != 1)
     {
-        outExpr = MultiExpression{ OverloadType{ types }, tokens, exprs };
+        outExpr = MultiExpression{ OverloadType{ types }, tokens, MultiExpressionType::Overload, exprs };
     }
     return true;
 }
@@ -297,8 +342,6 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Record>(VectorView<
     std::vector<HeapAlloc<Expression>> exprs;
     std::vector<HeapAlloc<Type>> types;
     tokensConsumed = 1;
-
-    if (tokens[0].type != TokenType::Symbol || tokens[0].value != "{") return false;
 
     do
     {
@@ -311,11 +354,9 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Record>(VectorView<
     while (tokens[tokensConsumed - 1].type == TokenType::Symbol && tokens[tokensConsumed - 1].value == ",");
 
     tokensConsumed -= 1;
-    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != "}") return false;
-
     if (exprs.size() != 1)
     {
-        outExpr = MultiExpression{ RecordType{ types }, tokens, exprs };
+        outExpr = MultiExpression{ RecordType{ types }, tokens, MultiExpressionType::Record, exprs };
     }
     return true;
 }
@@ -343,10 +384,11 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                     }
                     else
                     {
-                        Type ot2 = GetExpressionType(outExpr);
+                        Type& ot2 = GetExpressionType(outExpr);
                         if (ot2 == AtomicType::Template)
                         {
                             ctx.varStack[std::get<VariableExpression>(outExpr).stackIndex].second = GetExpressionType(expr);
+                            ot2 = GetExpressionType(expr);
                         }
                         else if (ot2 != GetExpressionType(expr))
                         {
@@ -374,10 +416,11 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                             {
                                 if (std::get<RecordType>(ot2).values[i].Get() == AtomicType::Template)
                                 {
-                                    int stackIndex = std::get<MultiVariableExpression>(outExpr).stackIndices[i];
+                                    int stackIndex = std::get<VariableExpression>(std::get<MultiExpression>(outExpr).elements[i].Get()).stackIndex;
                                     if (stackIndex != -1)
                                     {
                                         ctx.varStack[stackIndex].second = std::get<RecordType>(GetExpressionType(expr)).values[i].Get();
+                                        std::get<RecordType>(ot2).values[i] = HeapAlloc<Type>{ ctx.varStack[stackIndex].second };
                                         isSetting = true;
                                     }
                                 }
@@ -461,33 +504,90 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::VarDef>(VectorView<
 template<> bool ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
     std::vector<HeapAlloc<Type>> types;
-    std::vector<int> locs;
+    std::vector<HeapAlloc<Expression>> locs;
 
     if (!ParseExpression<ExpressionParsingPrecedence::VarDef>(tokens, ctx, outExpr, tokensConsumed)) return false;
 
     types.push_back({ std::get<VariableExpression>(outExpr).type });
-    locs.push_back(std::get<VariableExpression>(outExpr).stackIndex);
+    locs.push_back(outExpr);
 
     while (tokens[tokensConsumed].type == TokenType::Symbol && tokens[tokensConsumed].value == ",")
     {
         int consumed = 0;
         if (!ParseExpression<ExpressionParsingPrecedence::VarDef>(tokens.SubView(tokensConsumed + 1), ctx, outExpr, consumed)) return false;
         types.push_back({ std::get<VariableExpression>(outExpr).type });
-        locs.push_back(std::get<VariableExpression>(outExpr).stackIndex);
+        locs.push_back(outExpr);
         tokensConsumed += 1 + consumed;
     }
 
     if (types.size() == 1)
     {
-        outExpr = VariableExpression{ types.front().Get(), tokens, locs.front() };
+        outExpr = locs.front().Get();
     }
     else
     {
-        outExpr = MultiVariableExpression{ RecordType{ types }, tokens, locs };
+        outExpr = MultiExpression{ RecordType{ types }, tokens, MultiExpressionType::Variables, locs };
     }
 
     return true;
 }
 
+std::string ExpressionToString(Expression e)
+{
+    std::string type = TypeToString(GetExpressionType(e));
 
+    if (std::holds_alternative<LiteralExpression>(e))
+    {
+        if (!std::holds_alternative<AtomicType>(std::get<LiteralExpression>(e).type)) return "ERROR";
+
+        return "LiteralExp{" + std::get<LiteralExpression>(e).vec[0].value + ",type:" + type + "}";
+    }
+    else if (std::holds_alternative<VariableExpression>(e))
+    {
+        return "VariableExp{index:" + std::to_string(std::get<VariableExpression>(e).stackIndex) + ",type:" + type + "}";
+    }
+    else if (std::holds_alternative<MultiExpression>(e))
+    {
+        std::string ret = "MultiExp{" + std::to_string((int)std::get<MultiExpression>(e).exprType);
+        for (HeapAlloc<Expression>& i : std::get<MultiExpression>(e).elements)
+        {
+            ret += ExpressionToString(i.Get()) + ",";
+        }
+        ret = ret.substr(0, ret.size() - 1);
+        ret += ",type:" + type + "}";
+        return ret;
+    }
+    else if (std::holds_alternative<BinaryExpression>(e))
+    {
+        return "BinaryExp{" + std::to_string((int)std::get<BinaryExpression>(e).exprType) + "," + ExpressionToString(std::get<BinaryExpression>(e).a.Get()) + "," + ExpressionToString(std::get<BinaryExpression>(e).b.Get()) + ",type:" + type + "}";
+    }
+    else
+    {
+        return "UnaryExp{" + std::to_string((int)std::get<UnaryExpression>(e).exprType) + "," + ExpressionToString(std::get<UnaryExpression>(e).a.Get()) + ",type:" + type + "}";
+    }
+}
+
+int main()
+{
+    while (true)
+    {
+        std::cout << "Enter possible type: ";
+        std::string temp; std::getline(std::cin, temp);
+
+        std::vector<Token> tokens = Tokenize(temp);
+        for (Token& i : tokens)
+        {
+             std::cout << i.value << std::endl;
+        }
+        ParsingContext pc; Expression e = LiteralExpression{ AtomicType::Error, { tokens, 0 } }; int n = 0;
+        std::cout << (ParseExpression({tokens, 0}, pc, e, n) ? "Parsing worked!" : "Parsing failed.") << std::endl;
+        std::cout << ExpressionToString(e) << std::endl;
+        std::cout << n << " tokens parsed." << std::endl;
+        std::cout << "There were " << pc.errors.size() << " errors." << std::endl;
+        for (auto& i : pc.errors)
+        {
+             std::cout << "Error (" << i.line << "," << i.column << "): " << i.msg << std::endl;
+        }
+    }
+}
 

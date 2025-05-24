@@ -17,12 +17,13 @@
 template<typename T>
 struct VectorView
 {
-    const std::vector<T>& vec;
+    std::vector<T>& vec;
     int begin;
 
     inline const T& operator[](int i) { return vec[begin + i]; }
     inline VectorView SubView(int nb) { return { vec, begin + nb }; }
 
+    inline VectorView(std::vector<T>& v, int b) : vec(v), begin(b) {}
     inline VectorView(const VectorView<T>& other) : vec(other.vec), begin(other.begin) {}
     inline VectorView<T>& operator=(const VectorView<T>& other) { vec = other.vec; begin = other.begin; return *this; }
 };
@@ -110,5 +111,7 @@ enum class TypeParsingPrecedence
     Record = 0, Union, Overload, Lambda, Bracket, Atomic
 };
 
-bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int& tokensConsumed, TypeParsingPrecedence tp = TypeParsingPrecedence::Record);
+bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int& tokensConsumed, TypeParsingPrecedence tp = TypeParsingPrecedence::Bracket);
+
+std::string TypeToString(Type t);
 
