@@ -110,3 +110,53 @@ std::string ExpressionToString(Expression e);
 
 
 struct SingleStatement; struct ScopeStatement; struct ForStatement; struct WhileStatement; struct IfStatement; struct ReturnStatement;
+typedef std::variant<SingleStatement, ScopeStatement, ForStatement, WhileStatement, IfStatement, ReturnStatement> Statement;
+
+struct SingleStatement
+{
+    HeapAlloc<Expression> expr;
+};
+
+struct ScopeStatement
+{
+    std::vector<HeapAlloc<Statement>> vec;
+};
+
+struct ForStatement
+{
+    HeapAlloc<Expression> cond1;
+    HeapAlloc<Expression> cond2;
+    HeapAlloc<Expression> cond3;
+    HeapAlloc<Statement> contents;
+};
+
+struct WhileStatement
+{
+    HeapAlloc<Expression> condition;
+    HeapAlloc<Statement> contents;
+};
+
+struct IfStatement
+{
+    HeapAlloc<Expression> condition;
+    HeapAlloc<Statement> contents;
+};
+
+struct ReturnStatement
+{
+    HeapAlloc<Expression> expr;
+};
+
+enum class StatementParsingType
+{
+    Single, If, For, While, Return, Scope,
+};
+
+template<StatementParsingType T = StatementParsingType::Single> bool ParseStatement(VectorView<Token> tokens, ParsingContext& ctx, Statement& outStatement, int& tokensConsumed) = delete;
+
+template<> bool ParseStatement<StatementParsingType::Single>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
+template<> bool ParseStatement<StatementParsingType::If>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
+template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
+template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
+template<> bool ParseStatement<StatementParsingType::Return>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
+template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);

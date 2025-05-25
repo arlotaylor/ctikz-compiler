@@ -101,8 +101,8 @@ struct ErrorOutput
 
 struct ParsingContext
 {
-    std::map<std::string, Type> typedefs = { { "int", AtomicType::Integer }, { "double", AtomicType::Double }, { "string", AtomicType::String }, { "bool", AtomicType::Boolean } };
     std::vector<std::pair<std::string, Type>> varStack;
+    std::map<std::string, Type> typedefs = { { "int", AtomicType::Integer }, { "double", AtomicType::Double }, { "string", AtomicType::String }, { "bool", AtomicType::Boolean } };
     std::vector<ErrorOutput> errors;
 };
 

@@ -1,7 +1,6 @@
 #include "Parser.h"
 #include "Lexer.h"
 #include "Type.h"
-#include <stack>
 #include <variant>
 #include <iostream>
 
@@ -33,7 +32,7 @@ template<ExpressionParsingPrecedence T> Type GetBinaryReturnType(BinaryExpressio
 template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Exponentiate>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; }
 template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Multiply>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; };
 template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Add>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else if (t1 == AtomicType::String && t2 == AtomicType::String) { return AtomicType::String; } else { return AtomicType::Error; }; };
-template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Less>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Integer; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Double; } else { return AtomicType::Error; }; };
+template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Less>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Integer && t2 == AtomicType::Integer) { return AtomicType::Boolean; } else if (t1 == AtomicType::Double && t2 == AtomicType::Double) { return AtomicType::Boolean; } else { return AtomicType::Error; }; };
 template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Equals>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Error || t2 == AtomicType::Error) { return AtomicType::Error; } else if (t1 == t2) { return AtomicType::Boolean; } else { return AtomicType::Error; }; };
 template<> Type GetBinaryReturnType<ExpressionParsingPrecedence::Booleans>(BinaryExpressionType exp, Type t1, Type t2) { TEMPCHECK; if (t1 == AtomicType::Boolean && t2 == AtomicType::Boolean) { return AtomicType::Boolean; } else { return AtomicType::Error; }; };
 
@@ -447,7 +446,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
         }
     }
 
-    return ParseExpression<ExpressionParsingPrecedence::Booleans>(tokens, ctx, outExpr, tokensConsumed);
+    return ParseExpression<ExpressionParsingPrecedence::Record>(tokens, ctx, outExpr, tokensConsumed);
 }
 
 
@@ -532,6 +531,188 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(Vector
     return true;
 }
 
+
+
+template<> bool ParseStatement<StatementParsingType::Single>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed)
+{
+    if (ParseStatement<StatementParsingType::Scope>(tokens, ctx, outStatement, tokensConsumed)) return true;
+    if (ParseStatement<StatementParsingType::If>(tokens, ctx, outStatement, tokensConsumed)) return true;
+    if (ParseStatement<StatementParsingType::For>(tokens, ctx, outStatement, tokensConsumed)) return true;
+    if (ParseStatement<StatementParsingType::While>(tokens, ctx, outStatement, tokensConsumed)) return true;
+    if (ParseStatement<StatementParsingType::Return>(tokens, ctx, outStatement, tokensConsumed)) return true;
+
+    Expression expr = LiteralExpression{ AtomicType::Error, tokens };
+    if (!ParseExpression(tokens, ctx, expr, tokensConsumed)) return false;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
+    {
+        ctx.errors.push_back({ "Missing semicolon in statement." + tokens[tokensConsumed].value, tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        return false;
+    }
+
+    tokensConsumed += 1;
+    outStatement = SingleStatement{ { expr } };
+    return true;
+}
+
+template<> bool ParseStatement<StatementParsingType::If>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed)
+{
+    if (tokens[0].type != TokenType::Text || tokens[0].value != "if") return false;
+    if (tokens[1].type != TokenType::Symbol || tokens[1].value != "(")
+    {
+        ctx.errors.push_back({ "If statement must have parentheses around the condition.", tokens[1].line, tokens[1].column });
+        return false;
+    }
+
+    Expression expr = LiteralExpression{ AtomicType::Error, tokens };
+    if (!ParseExpression(tokens.SubView(2), ctx, expr, tokensConsumed)) return false;
+    tokensConsumed += 2;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ")")
+    {
+        ctx.errors.push_back({ "If statement must have parentheses around the condition.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        return false;
+    }
+    tokensConsumed += 1;
+
+    int consumed = 0;
+    if (!ParseStatement(tokens.SubView(tokensConsumed), ctx, outStatement, consumed)) return false;
+    tokensConsumed += consumed;
+
+    if (GetExpressionType(expr) != AtomicType::Boolean)
+    {
+        ctx.errors.push_back({ "If statement conditional must be a boolean.", tokens[2].line, tokens[2].column });
+    }
+
+    outStatement = IfStatement{ { expr }, { outStatement } };
+    return true;
+}
+
+template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed)
+{
+    if (tokens[0].type != TokenType::Text || tokens[0].value != "for") return false;
+    if (tokens[1].type != TokenType::Symbol || tokens[1].value != "(")
+    {
+        ctx.errors.push_back({ "For statement must have parentheses around the arguments.", tokens[1].line, tokens[1].column });
+        return false;
+    }
+
+    Expression expr1 = LiteralExpression{ AtomicType::Error, tokens };
+    if (!ParseExpression(tokens.SubView(2), ctx, expr1, tokensConsumed)) return false;
+    tokensConsumed += 2;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
+    {
+        ctx.errors.push_back({ "For statement must have 2 semicolons to separate the arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        return false;
+    }
+    tokensConsumed += 1;
+
+    int consumed = 0;
+    Expression expr2 = LiteralExpression{ AtomicType::Error, tokens };
+    if (!ParseExpression(tokens.SubView(tokensConsumed), ctx, expr2, consumed)) return false;
+    tokensConsumed += consumed;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
+    {
+        ctx.errors.push_back({ "For statement must have 2 semicolons to separate the arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        return false;
+    }
+    tokensConsumed += 1;
+
+    Expression expr3 = LiteralExpression{ AtomicType::Error, tokens };
+    if (!ParseExpression(tokens.SubView(tokensConsumed), ctx, expr3, consumed)) return false;
+    tokensConsumed += consumed;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ")")
+    {
+        ctx.errors.push_back({ "For statement must have parentheses around the arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        return false;
+    }
+    tokensConsumed += 1;
+
+    if (!ParseStatement(tokens.SubView(tokensConsumed), ctx, outStatement, consumed)) return false;
+    tokensConsumed += consumed;
+
+    if (GetExpressionType(expr2) != AtomicType::Boolean)
+    {
+        ctx.errors.push_back({ "For statement conditional must be a boolean.", tokens[2].line, tokens[2].column });
+    }
+
+    outStatement = ForStatement{ { expr1 }, { expr2 }, { expr3 }, { outStatement } };
+    return true;
+}
+
+template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed)
+{
+    if (tokens[0].type != TokenType::Text || tokens[0].value != "while") return false;
+    if (tokens[1].type != TokenType::Symbol || tokens[1].value != "(")
+    {
+        ctx.errors.push_back({ "While statement must have parentheses around the condition.", tokens[1].line, tokens[1].column });
+        return false;
+    }
+
+    Expression expr = LiteralExpression{ AtomicType::Error, tokens };
+    if (!ParseExpression(tokens.SubView(2), ctx, expr, tokensConsumed)) return false;
+    tokensConsumed += 2;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ")")
+    {
+        ctx.errors.push_back({ "While statement must have parentheses around the condition.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        return false;
+    }
+    tokensConsumed += 1;
+
+    int consumed = 0;
+    if (!ParseStatement(tokens.SubView(tokensConsumed), ctx, outStatement, consumed)) return false;
+    tokensConsumed += consumed;
+
+    if (GetExpressionType(expr) != AtomicType::Boolean)
+    {
+        ctx.errors.push_back({ "While statement conditional must be a boolean.", tokens[2].line, tokens[2].column });
+    }
+
+    outStatement = WhileStatement{ { expr }, { outStatement } };
+    return true;
+}
+
+template<> bool ParseStatement<StatementParsingType::Return>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed)
+{
+    if (tokens[0].type != TokenType::Text || tokens[0].value != "return") return false;
+    Expression expr = LiteralExpression{ AtomicType::Error, tokens };
+    if (!ParseExpression(tokens.SubView(1), ctx, expr, tokensConsumed)) return false;
+    tokensConsumed += 1;
+    if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
+    {
+        ctx.errors.push_back({ "Missing semicolon in return statement.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        return false;
+    }
+    tokensConsumed += 1;
+    outStatement = ReturnStatement{ { expr } };
+    return true;
+}
+
+template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed)
+{
+    if (tokens[0].type != TokenType::Symbol || tokens[0].value != "{") return false;
+    tokensConsumed = 1;
+    int stackSize = ctx.varStack.size();
+
+    std::vector<HeapAlloc<Statement>> statements;
+
+    while (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != "}")
+    {
+        int consumed = 0;
+        if (!ParseStatement(tokens.SubView(tokensConsumed), ctx, outStatement, consumed)) return false;
+        statements.push_back({ outStatement });
+        tokensConsumed += consumed;
+    }
+    tokensConsumed += 1;
+    outStatement = ScopeStatement{ statements };
+    ctx.varStack.erase(ctx.varStack.begin() + stackSize, ctx.varStack.end());
+    return true;
+}
+
+
+
+
+
+
+
 std::string ExpressionToString(Expression e)
 {
     std::string type = TypeToString(GetExpressionType(e));
@@ -567,11 +748,44 @@ std::string ExpressionToString(Expression e)
     }
 }
 
+std::string StatementToString(Statement s)
+{
+    if (std::holds_alternative<SingleStatement>(s))
+    {
+        return ExpressionToString(std::get<SingleStatement>(s).expr.Get()) + ";\n";
+    }
+    else if (std::holds_alternative<IfStatement>(s))
+    {
+        return "if (" + ExpressionToString(std::get<IfStatement>(s).condition.Get()) + ")\n" + StatementToString(std::get<IfStatement>(s).contents.Get());
+    }
+    else if (std::holds_alternative<ForStatement>(s))
+    {
+        return "for (" + ExpressionToString(std::get<ForStatement>(s).cond1.Get()) + ";" + ExpressionToString(std::get<ForStatement>(s).cond2.Get()) + ";" + ExpressionToString(std::get<ForStatement>(s).cond3.Get()) + ")\n" + StatementToString(std::get<ForStatement>(s).contents.Get());
+    }
+    else if (std::holds_alternative<WhileStatement>(s))
+    {
+        return "while (" + ExpressionToString(std::get<WhileStatement>(s).condition.Get()) + ")\n" + StatementToString(std::get<WhileStatement>(s).contents.Get());
+    }
+    else if (std::holds_alternative<ScopeStatement>(s))
+    {
+        std::string ret = "{\n";
+        for (HeapAlloc<Statement>& i : std::get<ScopeStatement>(s).vec)
+        {
+            ret += StatementToString(i.Get());
+        }
+        return ret + "}\n";
+    }
+    else
+    {
+        return "return " + ExpressionToString(std::get<SingleStatement>(s).expr.Get()) + ";\n";
+    }
+}
+
 int main()
 {
     while (true)
     {
-        std::cout << "Enter possible type: ";
+        std::cout << "Enter possible statement: ";
         std::string temp; std::getline(std::cin, temp);
 
         std::vector<Token> tokens = Tokenize(temp);
@@ -579,15 +793,22 @@ int main()
         {
              std::cout << i.value << std::endl;
         }
-        ParsingContext pc; Expression e = LiteralExpression{ AtomicType::Error, { tokens, 0 } }; int n = 0;
-        std::cout << (ParseExpression({tokens, 0}, pc, e, n) ? "Parsing worked!" : "Parsing failed.") << std::endl;
-        std::cout << ExpressionToString(e) << std::endl;
+        ParsingContext pc = { { { "func1", LambdaType{ { AtomicType::Integer }, { AtomicType::String } } } } };
+        Statement s = SingleStatement{ { LiteralExpression{ AtomicType::Error, { tokens, 0 } } } }; int n = 0;
+        std::cout << (ParseStatement({tokens, 0}, pc, s, n) ? "Parsing worked!" : "Parsing failed.") << std::endl;
+        std::cout << StatementToString(s) << std::endl;
         std::cout << n << " tokens parsed." << std::endl;
         std::cout << "There were " << pc.errors.size() << " errors." << std::endl;
         for (auto& i : pc.errors)
         {
-             std::cout << "Error (" << i.line << "," << i.column << "): " << i.msg << std::endl;
+            std::cout << "Error (" << i.line << "," << i.column << "): " << i.msg << std::endl;
+            int pos = 0;
+            for (int j = 1; j < i.line; j++) j = 1 + temp.find('\n', pos);
+            for (int j = 1; j < i.column; j++) std::cout << ' ';
+            std::cout << "v\n" << temp.substr(pos, temp.find('\n', pos) - pos) << std::endl;
         }
     }
 }
+
+// TODO: fix { { _, i = (3, "bruh"); i :: string; } i :: string; } input failing
 
