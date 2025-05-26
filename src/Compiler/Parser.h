@@ -9,6 +9,7 @@ typedef std::variant<SingleStatement, ScopeStatement, ForStatement, WhileStateme
 struct LiteralExpression; struct VariableExpression; struct LambdaExpression; struct MultiExpression; struct BinaryExpression; struct UnaryExpression;
 typedef std::variant<LiteralExpression, VariableExpression, LambdaExpression, MultiExpression, BinaryExpression, UnaryExpression> Expression;
 
+
 struct LiteralExpression
 {
     Type type;
@@ -121,15 +122,22 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(Vector
 std::string ExpressionToString(Expression e);
 
 
+struct ReturnTypeSet
+{
+    std::vector<Type> types;
+    bool isOptional = true;
+};
 
 struct SingleStatement
 {
     HeapAlloc<Expression> expr;
+    ReturnTypeSet type;
 };
 
 struct ScopeStatement
 {
     std::vector<HeapAlloc<Statement>> vec;
+    ReturnTypeSet type = {};
 };
 
 struct ForStatement
@@ -138,24 +146,50 @@ struct ForStatement
     HeapAlloc<Expression> cond2;
     HeapAlloc<Expression> cond3;
     HeapAlloc<Statement> contents;
+    ReturnTypeSet type = {};
 };
 
 struct WhileStatement
 {
     HeapAlloc<Expression> condition;
     HeapAlloc<Statement> contents;
+    ReturnTypeSet type = {};
 };
 
 struct IfStatement
 {
     HeapAlloc<Expression> condition;
     HeapAlloc<Statement> contents;
+    ReturnTypeSet type = {};
 };
 
 struct ReturnStatement
 {
     HeapAlloc<Expression> expr;
+    ReturnTypeSet type = {};
 };
+
+
+inline const ReturnTypeSet& GetStatementType(const Statement& expr)
+{
+    if (std::holds_alternative<SingleStatement>(expr)) return std::get<SingleStatement>(expr).type;
+    if (std::holds_alternative<ScopeStatement>(expr)) return std::get<ScopeStatement>(expr).type;
+    if (std::holds_alternative<ForStatement>(expr)) return std::get<ForStatement>(expr).type;
+    if (std::holds_alternative<WhileStatement>(expr)) return std::get<WhileStatement>(expr).type;
+    if (std::holds_alternative<IfStatement>(expr)) return std::get<IfStatement>(expr).type;
+    return std::get<ReturnStatement>(expr).type;
+}
+
+inline ReturnTypeSet& GetStatementType(Statement& expr)
+{
+    if (std::holds_alternative<SingleStatement>(expr)) return std::get<SingleStatement>(expr).type;
+    if (std::holds_alternative<ScopeStatement>(expr)) return std::get<ScopeStatement>(expr).type;
+    if (std::holds_alternative<ForStatement>(expr)) return std::get<ForStatement>(expr).type;
+    if (std::holds_alternative<WhileStatement>(expr)) return std::get<WhileStatement>(expr).type;
+    if (std::holds_alternative<IfStatement>(expr)) return std::get<IfStatement>(expr).type;
+    return std::get<ReturnStatement>(expr).type;
+}
+
 
 enum class StatementParsingType
 {

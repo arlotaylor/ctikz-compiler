@@ -60,7 +60,7 @@ template<> Type GetUnaryReturnType<ExpressionParsingPrecedence::Unary>(UnaryExpr
     }
 }
 
-const std::vector<std::string> EXPRESSION_PREC_NAMES = { "VarDef", "MultiVarDef", "Assignment", "Record", "Overload", "Booleans", "Equals", "Less", "Add", "Multiply", "Exponentiate", "Cast", "FunctionCall", "Unary", "Brackets", "Literal", "Variable" };
+const std::vector<std::string> EXPRESSION_PREC_NAMES = { "VarDef", "MultiVarDef", "Assignment", "Record", "Overload", "Booleans", "Equals", "Less", "Add", "Multiply", "Exponentiate", "Cast", "FunctionCall", "Unary", "Brackets", "Literal", "Lambda", "Variable" };
 
 struct Instrumentation
 {
@@ -157,13 +157,46 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Lambda>(VectorView<
             ctx.errors.push_back({ "Lambda arguments must be enclosed by parentheses.", tokens[1].pos });
             return false;
         }
+        int varStackSize = ctx.varStack.size();
         if (!ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(tokens.SubView(2), ctx, outExpr, tokensConsumed))
         {
             ctx.errors.push_back({ "Error while parsing lambda arguments.", tokens[2].pos });
             return false;
         }
+        tokensConsumed += 2;
+        if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ")")
+        {
+            ctx.errors.push_back({ "Lambda arguments must be enclosed by parentheses.", tokens[tokensConsumed].pos });
+            return false;
+        }
+        tokensConsumed += 1;
 
-
+        Statement stat = SingleStatement{ { LiteralExpression{ AtomicType::Error, tokens } } };
+        int consumed = 0;
+        if (!ParseStatement(tokens.SubView(tokensConsumed), ctx, stat, consumed))
+        {
+            ctx.errors.push_back({ "Error in lambda body.", tokens[tokensConsumed].pos });
+            return false;
+        }
+        tokensConsumed += consumed;
+        Type retType;
+        if (GetStatementType(stat).types.size() == 0)
+        {
+            retType = AtomicType::Void;
+        }
+        else if (GetStatementType(stat).types.size() == 1 && !GetStatementType(stat).isOptional)
+        {
+            retType = GetStatementType(stat).types.front();
+        }
+        else
+        {
+            std::vector<HeapAlloc<Type>> retTypes;
+            for (Type& t : GetStatementType(stat).types) retTypes.push_back({ t });
+            if (GetStatementType(stat).isOptional) retTypes.push_back({ AtomicType::Void });
+            retType = UnionType{ retTypes };
+        }
+        outExpr = LambdaExpression{ LambdaType{ { GetExpressionType(outExpr) }, { retType } }, tokens, { outExpr }, { stat } };
+        return true;
     }
     else
     {
@@ -614,6 +647,11 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(Vector
 }
 
 
+// Statement types primer:
+//   A statement's type is its return type. This is empty for almost all statements.
+//   Return statements return a type.
+//   If, for and while statements return unions of NoReturn and whatever the inner scope returns.
+//   Scopes are weird. They loop through, adding each return type (with NoReturns stripped) of their constituents to a list. If one of these returns has no NoReturns, and is not the last substatement, an error is raised. If it is the end, the final return type will not have a NoReturns. Otherwise, the final return type is the list we collected, plus NoReturns, in a union.
 
 template<> bool ParseStatement<StatementParsingType::Single>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed)
 {
@@ -632,7 +670,7 @@ template<> bool ParseStatement<StatementParsingType::Single>(VectorView<Token> t
     }
 
     tokensConsumed += 1;
-    outStatement = SingleStatement{ { expr } };
+    outStatement = SingleStatement{ { expr } };  // single statements always output NoReturn, even when the underlying expression does not.
     return true;
 }
 
@@ -664,7 +702,7 @@ template<> bool ParseStatement<StatementParsingType::If>(VectorView<Token> token
         ctx.errors.push_back({ "If statement conditional must be a boolean.", tokens[2].pos });
     }
 
-    outStatement = IfStatement{ { expr }, { outStatement } };
+    outStatement = IfStatement{ { expr }, { outStatement }, { GetStatementType(outStatement).types, true } };
     return true;
 }
 
@@ -716,7 +754,7 @@ template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> toke
         ctx.errors.push_back({ "For statement conditional must be a boolean.", tokens[2].pos });
     }
 
-    outStatement = ForStatement{ { expr1 }, { expr2 }, { expr3 }, { outStatement } };
+    outStatement = ForStatement{ { expr1 }, { expr2 }, { expr3 }, { outStatement }, { GetStatementType(outStatement).types, true } };
     return true;
 }
 
@@ -748,7 +786,7 @@ template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> to
         ctx.errors.push_back({ "While statement conditional must be a boolean.", tokens[2].pos });
     }
 
-    outStatement = WhileStatement{ { expr }, { outStatement } };
+    outStatement = WhileStatement{ { expr }, { outStatement }, { GetStatementType(outStatement).types, true } };
     return true;
 }
 
@@ -764,7 +802,7 @@ template<> bool ParseStatement<StatementParsingType::Return>(VectorView<Token> t
         return false;
     }
     tokensConsumed += 1;
-    outStatement = ReturnStatement{ { expr } };
+    outStatement = ReturnStatement{ { expr }, { { GetExpressionType(expr) }, false } };
     return true;
 }
 
@@ -775,21 +813,32 @@ template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> to
     int stackSize = ctx.varStack.size();
 
     std::vector<HeapAlloc<Statement>> statements;
+    std::vector<Type> returnTypes;
+    int definiteReturnTypes = 0;
 
     while (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != "}")
     {
+        if (definiteReturnTypes == 1)
+        {
+            ctx.errors.push_back({ "Unreachable code (already returned).", tokens[tokensConsumed].pos });
+        }
+
         int consumed = 0;
         if (!ParseStatement(tokens.SubView(tokensConsumed), ctx, outStatement, consumed)) return false;
         statements.push_back({ outStatement });
         tokensConsumed += consumed;
+
+        returnTypes.insert(returnTypes.end(), GetStatementType(outStatement).types.begin(), GetStatementType(outStatement).types.end());
+        if (!GetStatementType(outStatement).isOptional) definiteReturnTypes++;
     }
     tokensConsumed += 1;
-    outStatement = ScopeStatement{ statements };
+    outStatement = ScopeStatement{ statements, { returnTypes, definiteReturnTypes == 0 } };
     ctx.varStack.erase(ctx.varStack.begin() + stackSize, ctx.varStack.end());
     return true;
 }
 
 
+std::string StatementToString(Statement s);
 
 std::string ExpressionToString(Expression e)
 {
@@ -804,6 +853,10 @@ std::string ExpressionToString(Expression e)
     else if (std::holds_alternative<VariableExpression>(e))
     {
         return "VariableExp{index:" + std::to_string(std::get<VariableExpression>(e).stackIndex) + ",type:" + type + "}";
+    }
+    else if (std::holds_alternative<LambdaExpression>(e))
+    {
+        return "LambdaExpression{" + ExpressionToString(std::get<LambdaExpression>(e).args.Get()) + "," + StatementToString(std::get<LambdaExpression>(e).body.Get()) + ",type:" + type + "}";
     }
     else if (std::holds_alternative<MultiExpression>(e))
     {
@@ -855,7 +908,7 @@ std::string StatementToString(Statement s)
     }
     else
     {
-        return "return " + ExpressionToString(std::get<SingleStatement>(s).expr.Get()) + ";\n";
+        return "return " + ExpressionToString(std::get<ReturnStatement>(s).expr.Get()) + ";\n";
     }
 }
 
