@@ -54,6 +54,12 @@ public:
     }
 };
 
+struct ErrorOutput
+{
+    std::string msg; TextPosition pos;
+};
+
+
 enum class AtomicType
 {
     Error, Void, Template,
@@ -88,6 +94,16 @@ struct LambdaType
 {
     HeapAlloc<Type> arg;
     HeapAlloc<Type> ret;
+    bool isTemplate;
+    std::vector<HeapAlloc<Type>> instantiatedArgs;
+    std::vector<VectorView<Token>> definitions;
+    // TODO: track the return types of every combination, then add that stuff to CheckCast
+
+    void CheckArgDef(int instArg, int definition, std::vector<ErrorOutput>& errors);
+    void AddInstArgs(Type a, std::vector<ErrorOutput>& errors);
+    void AddDefinition(VectorView<Token> tokens, std::vector<ErrorOutput>& errors);
+
+    LambdaType(HeapAlloc<Type> a, HeapAlloc<Type> r);
 };
 
 bool operator==(const Type& a, const Type& b);
@@ -95,10 +111,6 @@ bool operator!=(const Type& a, const Type& b);
 
 bool CheckCast(Type from, Type to);
 
-struct ErrorOutput
-{
-    std::string msg; TextPosition pos;
-};
 
 struct ParsingContext
 {

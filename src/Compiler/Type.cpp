@@ -1,6 +1,7 @@
 #include "Type.h"
 #include "Lexer.h"
 #include "Assertion.h"
+#include "Parser.h"
 #include <variant>
 
 // This language's types fall into five categories
@@ -55,6 +56,91 @@ RecordType::RecordType(std::vector<HeapAlloc<Type>> v)
 {
     Assert(values.size() > 1, "How did you construct a record with less than two elements?");
 }
+
+LambdaType::LambdaType(HeapAlloc<Type> a, HeapAlloc<Type> r) : arg(a), ret(r), isTemplate(false)
+{
+    if (a.Get() == AtomicType::Template)
+    {
+        isTemplate = true;
+    }
+    else
+    {
+        Assert(std::holds_alternative<OverloadType>(a.Get()));
+        for (HeapAlloc<Type>& t : std::get<OverloadType>(a.Get()).values)
+        {
+            if (t.Get() == AtomicType::Template)
+            {
+                isTemplate = true;
+                break;
+            }
+        }
+    }
+}
+
+
+void LambdaType::CheckArgDef(int instArg, int definition, std::vector<ErrorOutput>& errors)
+{
+    VectorView<Token>& vec = definitions[definition];
+    Type& a = instantiatedArgs[instArg].Get();
+
+    Assert(vec[0].type == TokenType::Symbol && vec[0].value == "(");
+    Expression expr = LiteralExpression{ AtomicType::Error, vec };
+    int consumed = 0;
+    ParsingContext pc;  // TODO: figure out how to get the right parsing context
+    if (!ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(vec.SubView(1), pc, expr, consumed)) Assert(false);
+    Assert(vec[1+consumed].type == TokenType::Symbol && vec[1+consumed].value == ")");
+
+    if (std::holds_alternative<VariableExpression>(expr))
+    {
+        Assert(GetExpressionType(expr) == AtomicType::Template);
+        pc.varStack[std::get<VariableExpression>(expr).stackIndex].second = a;
+    }
+    else
+    {
+        Assert(std::holds_alternative<MultiExpression>(expr));
+        Assert(std::holds_alternative<RecordType>(a) && std::get<RecordType>(a).values.size() == std::get<MultiExpression>(expr).elements.size());
+
+        for (int i = 0; i < std::get<MultiExpression>(expr).elements.size(); i++)
+        {
+            if (GetExpressionType(std::get<MultiExpression>(expr).elements[i].Get()) == AtomicType::Template)
+            {
+                pc.varStack[std::get<VariableExpression>(std::get<MultiExpression>(expr).elements[i].Get()).stackIndex].second = std::get<RecordType>(a).values[i].Get();
+            }
+        }
+    }
+
+    // Parsing context is ready, time to parse
+    Statement oStat = SingleStatement{ { LiteralExpression{ AtomicType::Error, vec } } };
+    if (!ParseStatement(vec.SubView(consumed + 2), pc, oStat, consumed)) Assert(false);  // this should be true, because the statement should have already been checked, if not type checked. The important part here is that we add the relevant errors to the parsing context.
+    for (ErrorOutput& err : pc.errors)
+    {
+        errors.push_back(err);
+    }
+}
+
+void LambdaType::AddInstArgs(Type a, std::vector<ErrorOutput>& errors)
+{
+    Assert(isTemplate);
+
+    instantiatedArgs.push_back({ a });
+    for (int i = 0; i < definitions.size(); i++)
+    {
+        CheckArgDef(instantiatedArgs.size() - 1, i, errors);
+    }
+}
+
+void LambdaType::AddDefinition(VectorView<Token> tokens, std::vector<ErrorOutput>& errors)
+{
+    Assert(isTemplate);
+
+    definitions.push_back(tokens);
+    for (int i = 0; i < instantiatedArgs.size(); i++)
+    {
+        CheckArgDef(i, definitions.size() - 1, errors);
+    }
+}
+
+
 
 bool operator==(const Type& a, const Type& b)
 {

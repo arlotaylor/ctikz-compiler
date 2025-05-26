@@ -126,6 +126,8 @@ struct ReturnTypeSet
 {
     std::vector<Type> types;
     bool isOptional = true;
+
+    Type ToType();
 };
 
 struct SingleStatement

@@ -80,6 +80,25 @@ struct Instrumentation
     }
 };
 
+Type ReturnTypeSet::ToType()
+{
+    if (types.size() == 0)
+    {
+        return AtomicType::Void;
+    }
+    else if (types.size() == 1 && !isOptional)
+    {
+        return types.front();
+    }
+    else
+    {
+        std::vector<HeapAlloc<Type>> retTypes;
+        for (Type& t : types) retTypes.push_back({ t });
+        if (isOptional) retTypes.push_back({ AtomicType::Void });
+        return UnionType{ retTypes };
+    }
+}
+
 int Instrumentation::depth = 0;
 
 template<ExpressionParsingPrecedence T>
@@ -179,23 +198,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Lambda>(VectorView<
             return false;
         }
         tokensConsumed += consumed;
-        Type retType;
-        if (GetStatementType(stat).types.size() == 0)
-        {
-            retType = AtomicType::Void;
-        }
-        else if (GetStatementType(stat).types.size() == 1 && !GetStatementType(stat).isOptional)
-        {
-            retType = GetStatementType(stat).types.front();
-        }
-        else
-        {
-            std::vector<HeapAlloc<Type>> retTypes;
-            for (Type& t : GetStatementType(stat).types) retTypes.push_back({ t });
-            if (GetStatementType(stat).isOptional) retTypes.push_back({ AtomicType::Void });
-            retType = UnionType{ retTypes };
-        }
-        outExpr = LambdaExpression{ LambdaType{ { GetExpressionType(outExpr) }, { retType } }, tokens, { outExpr }, { stat } };
+        outExpr = LambdaExpression{ LambdaType{ { GetExpressionType(outExpr) }, { GetStatementType(stat).ToType() } }, tokens, { outExpr }, { stat } };
         return true;
     }
     else
