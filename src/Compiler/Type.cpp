@@ -221,7 +221,7 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
             }
             else
             {
-                ctx.errors.push_back({ "Unknown atomic type: " + tokens[0].value + ".", tokens[0].line, tokens[0].column });
+                ctx.errors.push_back({ "Unknown atomic type: " + tokens[0].value + ".", tokens[0].pos });
                 outType = AtomicType::Error;
                 tokensConsumed = 1;
                 return true;
@@ -237,7 +237,7 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
         if (!ParseType(tokens.SubView(1), ctx, outType, tokensConsumed, TypeParsingPrecedence::Record)) return false;
         if (tokens[tokensConsumed + 1].type != TokenType::Symbol || tokens[tokensConsumed + 1].value != ")")
         {
-            ctx.errors.push_back({ "No closing bracket.", tokens[0].line, tokens[0].column });
+            ctx.errors.push_back({ "No closing bracket.", tokens[0].pos });
             return false;
         }
         else

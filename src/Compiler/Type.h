@@ -1,4 +1,5 @@
 #pragma once
+#include "Assertion.h"
 #include "Lexer.h"
 #include <variant>
 #include <vector>
@@ -96,7 +97,7 @@ bool CheckCast(Type from, Type to);
 
 struct ErrorOutput
 {
-    std::string msg; int line; int column;
+    std::string msg; TextPosition pos;
 };
 
 struct ParsingContext

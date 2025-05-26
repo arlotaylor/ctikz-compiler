@@ -2,17 +2,22 @@
 #include <string>
 #include <iostream>
 
-inline void Assert(bool b, std::string msg = "No message given.", int line = -1, int column = -1)
+struct TextPosition
+{
+    int line; int column;
+};
+
+inline void Assert(bool b, std::string msg = "No message given.", TextPosition pos = { -1, -1 })
 {
     if (!b)
     {
         std::string out = "Assertion Failed";
-        if (line != -1)
+        if (pos.line != -1)
         {
-            out += " (line " + std::to_string(line);
-            if (column != -1)
+            out += " (line " + std::to_string(pos.line);
+            if (pos.column != -1)
             {
-                out += ", column " + std::to_string(column);
+                out += ", column " + std::to_string(pos.column);
             }
             out += ")";
         }

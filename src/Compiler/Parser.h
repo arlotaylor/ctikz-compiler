@@ -3,9 +3,11 @@
 #include <variant>
 #include <vector>
 
+struct SingleStatement; struct ScopeStatement; struct ForStatement; struct WhileStatement; struct IfStatement; struct ReturnStatement;
+typedef std::variant<SingleStatement, ScopeStatement, ForStatement, WhileStatement, IfStatement, ReturnStatement> Statement;
 
-struct LiteralExpression; struct VariableExpression; struct MultiExpression; struct BinaryExpression; struct UnaryExpression;
-typedef std::variant<LiteralExpression, VariableExpression, MultiExpression, BinaryExpression, UnaryExpression> Expression;
+struct LiteralExpression; struct VariableExpression; struct LambdaExpression; struct MultiExpression; struct BinaryExpression; struct UnaryExpression;
+typedef std::variant<LiteralExpression, VariableExpression, LambdaExpression, MultiExpression, BinaryExpression, UnaryExpression> Expression;
 
 struct LiteralExpression
 {
@@ -18,6 +20,14 @@ struct VariableExpression
     Type type;
     VectorView<Token> vec;
     int stackIndex;
+};
+
+struct LambdaExpression
+{
+    Type type;
+    VectorView<Token> vec;
+    HeapAlloc<Expression> args;
+    HeapAlloc<Statement> body;
 };
 
 enum class MultiExpressionType
@@ -67,6 +77,7 @@ inline const Type& GetExpressionType(const Expression& expr)
 {
     if (std::holds_alternative<LiteralExpression>(expr)) return std::get<LiteralExpression>(expr).type;
     if (std::holds_alternative<VariableExpression>(expr)) return std::get<VariableExpression>(expr).type;
+    if (std::holds_alternative<LambdaExpression>(expr)) return std::get<LambdaExpression>(expr).type;
     if (std::holds_alternative<MultiExpression>(expr)) return std::get<MultiExpression>(expr).type;
     if (std::holds_alternative<BinaryExpression>(expr)) return std::get<BinaryExpression>(expr).type;
     return std::get<UnaryExpression>(expr).type;
@@ -76,6 +87,7 @@ inline Type& GetExpressionType(Expression& expr)
 {
     if (std::holds_alternative<LiteralExpression>(expr)) return std::get<LiteralExpression>(expr).type;
     if (std::holds_alternative<VariableExpression>(expr)) return std::get<VariableExpression>(expr).type;
+    if (std::holds_alternative<LambdaExpression>(expr)) return std::get<LambdaExpression>(expr).type;
     if (std::holds_alternative<MultiExpression>(expr)) return std::get<MultiExpression>(expr).type;
     if (std::holds_alternative<BinaryExpression>(expr)) return std::get<BinaryExpression>(expr).type;
     return std::get<UnaryExpression>(expr).type;
@@ -85,13 +97,14 @@ enum class ExpressionParsingPrecedence
 {
     // TODO: change the multivardef to just a multi expression. Also need to figure out how to use the same syntax for records and arguments. eg num: int, string, foo = 4, "5", 3.3; is nonsense. Might need to change the record syntax, and/or add {} around record r-values. So it could look like num: int + string, foo = { 4, "5" }, 3.3;
     VarDef, MultiVarDef,
-    Assignment, Record, Overload, Booleans, Equals, Less, Add, Multiply, Exponentiate, Cast, FunctionCall, Unary, Brackets, Literal, Variable,
+    Assignment, Record, Overload, Booleans, Equals, Less, Add, Multiply, Exponentiate, Cast, FunctionCall, Unary, Brackets, Literal, Lambda, Variable,
 };
 
 template<ExpressionParsingPrecedence T = ExpressionParsingPrecedence::Assignment>
 bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed);
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Variable>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed);
+template<> bool ParseExpression<ExpressionParsingPrecedence::Lambda>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed);
 template<> bool ParseExpression<ExpressionParsingPrecedence::Literal>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed);
 template<> bool ParseExpression<ExpressionParsingPrecedence::Brackets>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed);
 template<> bool ParseExpression<ExpressionParsingPrecedence::Unary>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed);
@@ -108,9 +121,6 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(Vector
 std::string ExpressionToString(Expression e);
 
 
-
-struct SingleStatement; struct ScopeStatement; struct ForStatement; struct WhileStatement; struct IfStatement; struct ReturnStatement;
-typedef std::variant<SingleStatement, ScopeStatement, ForStatement, WhileStatement, IfStatement, ReturnStatement> Statement;
 
 struct SingleStatement
 {
@@ -160,3 +170,4 @@ template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> toke
 template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
 template<> bool ParseStatement<StatementParsingType::Return>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
 template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
+

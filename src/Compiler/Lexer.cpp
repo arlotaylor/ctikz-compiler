@@ -24,7 +24,7 @@ std::vector<Token> Tokenize(std::string str)
             do { pos += 1; } while (std::isalnum(str[pos]) || str[pos] == '_');
 
             std::string val = str.substr(begin, pos - begin);
-            ret.push_back({ (val == "true" || val == "false") ? TokenType::Boolean : TokenType::Text, val, line, begin - lineStart });
+            ret.push_back({ (val == "true" || val == "false") ? TokenType::Boolean : TokenType::Text, val, { line, begin - lineStart } });
         }
         else if (str[pos] == '"')
         {
@@ -38,10 +38,10 @@ std::vector<Token> Tokenize(std::string str)
                 if (str[pos] == '\\')
                 {
                     pos += 1;
-                    Assert(pos < str.size(), "End of file reached while lexing string.", line, begin - lineStart);
+                    Assert(pos < str.size(), "End of file reached while lexing string.", { line, begin - lineStart });
 
                     size_t v = std::string("abfnrtv\\\'\"").find(str[pos]);
-                    Assert(v != std::string::npos, "Unrecognized escape sequence.", line, begin - lineStart);
+                    Assert(v != std::string::npos, "Unrecognized escape sequence.", { line, begin - lineStart });
                     r += std::string("\a\b\f\n\r\t\v\\\'\"")[v];
                 }
                 else
@@ -49,9 +49,9 @@ std::vector<Token> Tokenize(std::string str)
                     r += str[pos];
                 }
             }
-            Assert(pos < str.size(), "End of file reached while lexing string.", line, begin - lineStart);
+            Assert(pos < str.size(), "End of file reached while lexing string.", { line, begin - lineStart });
             pos += 1;
-            ret.push_back({ TokenType::StringLiteral, r, line, begin - lineStart });
+            ret.push_back({ TokenType::StringLiteral, r, { line, begin - lineStart } });
         }
         else if (std::isdigit(str[pos]))
         {
@@ -60,18 +60,18 @@ std::vector<Token> Tokenize(std::string str)
             if (str[pos] == '.')
             {
                 do { pos += 1; } while (std::isdigit(str[pos]));
-                ret.push_back({ TokenType::Decimal, str.substr(begin, pos - begin), line, begin - lineStart });
+                ret.push_back({ TokenType::Decimal, str.substr(begin, pos - begin), { line, begin - lineStart } });
             }
             else
             {
-                ret.push_back({ TokenType::Integer, str.substr(begin, pos - begin), line, begin - lineStart });
+                ret.push_back({ TokenType::Integer, str.substr(begin, pos - begin), { line, begin - lineStart } });
             }
         }
         else if (str[pos] == '.' && std::isdigit(str[pos + 1]))
         {
             int begin = pos; pos += 2;
             while (std::isdigit(str[pos])) pos += 1;
-            ret.push_back({ TokenType::Decimal, str.substr(begin, pos - begin), line, begin - lineStart });
+            ret.push_back({ TokenType::Decimal, str.substr(begin, pos - begin), { line, begin - lineStart } });
         }
         else if (str[pos] == '/' && str[pos + 1] == '/')  // comments
         {
@@ -81,26 +81,26 @@ std::vector<Token> Tokenize(std::string str)
         {
             int begin = pos; pos += 1;
             if (str[pos] == '=') pos += 1;
-            ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), line, begin - lineStart });
+            ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), { line, begin - lineStart } });
         }
         else if (std::string("&|").find(str[pos]) != std::string::npos)
         {
             int begin = pos; pos += 1;
             if (str[pos] == str[pos - 1]) pos += 1;
-            ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), line, begin - lineStart });
+            ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), { line, begin - lineStart } });
         }
         else if (std::string(",()[]{}_:;").find(str[pos]) != std::string::npos)
         {
             int begin = pos; pos += 1;
-            ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), line, begin - lineStart });
+            ret.push_back({ TokenType::Symbol, str.substr(begin, pos - begin), { line, begin - lineStart } });
         }
         else
         {
-            Assert(false, "Unrecognized symbol." + str.substr(pos), line, pos - lineStart);
+            Assert(false, "Unrecognized symbol." + str.substr(pos), { line, pos - lineStart });
         }
     }
 
-    ret.push_back({ TokenType::EndOfFile, "", line, pos - lineStart });
+    ret.push_back({ TokenType::EndOfFile, "", { line, pos - lineStart } });
     return ret;
 }
 

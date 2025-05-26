@@ -3,6 +3,7 @@
 #include "Type.h"
 #include <variant>
 #include <iostream>
+#include <vector>
 
 template<ExpressionParsingPrecedence T> bool IsSymbolValid(std::string val) = delete;
 template<> bool IsSymbolValid<ExpressionParsingPrecedence::Unary>(std::string val) { return val == "!" || val == "-" || val == "+"; }
@@ -59,10 +60,33 @@ template<> Type GetUnaryReturnType<ExpressionParsingPrecedence::Unary>(UnaryExpr
     }
 }
 
+const std::vector<std::string> EXPRESSION_PREC_NAMES = { "VarDef", "MultiVarDef", "Assignment", "Record", "Overload", "Booleans", "Equals", "Less", "Add", "Multiply", "Exponentiate", "Cast", "FunctionCall", "Unary", "Brackets", "Literal", "Variable" };
+
+struct Instrumentation
+{
+    static int depth;
+
+    ExpressionParsingPrecedence prec;
+    Instrumentation(ExpressionParsingPrecedence ep)
+        : prec(ep)
+    {
+        for (int i = 0; i < depth; i++) std::cout << "  ";
+        std::cout << EXPRESSION_PREC_NAMES[(int)prec] << '\n';
+        depth++;
+    }
+    ~Instrumentation()
+    {
+        depth--;
+    }
+};
+
+int Instrumentation::depth = 0;
 
 template<ExpressionParsingPrecedence T>
 bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(T);
+
     if (!ParseExpression<(ExpressionParsingPrecedence)((int)T + 1)>(tokens, ctx, outExpr, tokensConsumed)) return false;
 
     std::string val = tokens[tokensConsumed].value;
@@ -72,7 +96,7 @@ bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& 
         Expression expr = LiteralExpression{ AtomicType::Error, tokens };
         if (!ParseExpression<(ExpressionParsingPrecedence)((int)T + 1)>(tokens.SubView(tokensConsumed + 1), ctx, expr, consumed))
         {
-            ctx.errors.push_back({ "Failed to parse expression.", tokens[tokensConsumed + 1].line, tokens[tokensConsumed + 1].column });
+            ctx.errors.push_back({ "Failed to parse expression.", tokens[tokensConsumed + 1].pos });
             return false;
         }
         else
@@ -81,7 +105,7 @@ bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& 
             Type ot = GetBinaryReturnType<T>(ty, GetExpressionType(outExpr), GetExpressionType(expr));
             if (ot == AtomicType::Error)
             {
-                ctx.errors.push_back({ "Wrong types for '" + val + "' operation.", tokens[0].line, tokens[0].column });
+                ctx.errors.push_back({ "Wrong types for '" + val + "' operation.", tokens[0].pos });
             }
 
             tokensConsumed += 1 + consumed;
@@ -98,6 +122,8 @@ bool ParseExpression(VectorView<Token> tokens, ParsingContext& ctx, Expression& 
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Variable>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Variable);
+
     if (tokens[0].type == TokenType::Text)
     {
         for (int i = ctx.varStack.size() - 1; i >= 0; i--)
@@ -109,7 +135,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Variable>(VectorVie
                 return true;
             }
         }
-        ctx.errors.push_back({ "Unrecognized identifier: " + tokens[0].value + ".", tokens[0].line, tokens[0].column });
+        ctx.errors.push_back({ "Unrecognized identifier: " + tokens[0].value + ".", tokens[0].pos });
         tokensConsumed = 1;
         outExpr = VariableExpression{ AtomicType::Error, tokens, -1 };
         return true;
@@ -120,8 +146,35 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Variable>(VectorVie
     }
 }
 
+template<> bool ParseExpression<ExpressionParsingPrecedence::Lambda>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
+{
+    Instrumentation inst(ExpressionParsingPrecedence::Lambda);
+
+    if (tokens[0].type == TokenType::Text && tokens[0].value == "lambda")
+    {
+        if (tokens[1].type != TokenType::Symbol || tokens[1].value != "(")
+        {
+            ctx.errors.push_back({ "Lambda arguments must be enclosed by parentheses.", tokens[1].pos });
+            return false;
+        }
+        if (!ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(tokens.SubView(2), ctx, outExpr, tokensConsumed))
+        {
+            ctx.errors.push_back({ "Error while parsing lambda arguments.", tokens[2].pos });
+            return false;
+        }
+
+
+    }
+    else
+    {
+        return ParseExpression<ExpressionParsingPrecedence::Variable>(tokens, ctx, outExpr, tokensConsumed);
+    }
+}
+
 template<> bool ParseExpression<ExpressionParsingPrecedence::Literal>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Literal);
+
     if (tokens[0].type == TokenType::Integer)
     {
         outExpr = LiteralExpression{ AtomicType::Integer, tokens };
@@ -140,7 +193,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Literal>(VectorView
     }
     else
     {
-        return ParseExpression<ExpressionParsingPrecedence::Variable>(tokens, ctx, outExpr, tokensConsumed);
+        return ParseExpression<ExpressionParsingPrecedence::Lambda>(tokens, ctx, outExpr, tokensConsumed);
     }
     tokensConsumed = 1;
     return true;
@@ -148,12 +201,14 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Literal>(VectorView
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Brackets>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Brackets);
+
     if (tokens[0].type == TokenType::Symbol && tokens[0].value == "(")
     {
         if (!ParseExpression(tokens.SubView(1), ctx, outExpr, tokensConsumed)) return false;
         if (tokens[tokensConsumed + 1].type != TokenType::Symbol || tokens[tokensConsumed + 1].value != ")")
         {
-            ctx.errors.push_back({ "No matching ).", tokens[0].line, tokens[0].column });
+            ctx.errors.push_back({ "No matching ).", tokens[0].pos });
             return false;
         }
 
@@ -168,6 +223,8 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Brackets>(VectorVie
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Unary>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Unary);
+
     std::string val = tokens[0].value;
 
     if (tokens[0].type == TokenType::Symbol && IsSymbolValid<ExpressionParsingPrecedence::Unary>(val))
@@ -179,7 +236,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Unary>(VectorView<T
         Type ot = GetUnaryReturnType<ExpressionParsingPrecedence::Unary>(ty, GetExpressionType(outExpr));
         if (ot == AtomicType::Error)
         {
-            ctx.errors.push_back({ "Wrong types for unary '" + val + "' operation.", tokens[0].line, tokens[0].column });
+            ctx.errors.push_back({ "Wrong types for unary '" + val + "' operation.", tokens[0].pos });
         }
 
         outExpr = UnaryExpression{ ot, tokens, ty, { outExpr } };
@@ -194,6 +251,8 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Unary>(VectorView<T
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::FunctionCall>(VectorView<Token> tokens, ParsingContext &ctx, Expression &outExpr, int &tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::FunctionCall);
+
     if (!ParseExpression<ExpressionParsingPrecedence::Unary>(tokens, ctx, outExpr, tokensConsumed)) return false;
 
     if (tokens[tokensConsumed].type == TokenType::Symbol && tokens[tokensConsumed].value == "(")
@@ -210,12 +269,12 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::FunctionCall>(Vecto
         }
         else if (!std::holds_alternative<LambdaType>(GetExpressionType(outExpr)))
         {
-            ctx.errors.push_back({ "Cannot call a non-lambda type.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+            ctx.errors.push_back({ "Cannot call a non-lambda type.", tokens[tokensConsumed].pos });
             GetExpressionType(outExpr) = AtomicType::Error;
         }
         else if (std::get<LambdaType>(GetExpressionType(outExpr)).arg.Get() != GetExpressionType(expr))
         {
-            ctx.errors.push_back({ "Invalid function arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+            ctx.errors.push_back({ "Invalid function arguments.", tokens[tokensConsumed].pos });
             GetExpressionType(outExpr) = AtomicType::Error;
         }
         else
@@ -233,6 +292,8 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::FunctionCall>(Vecto
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Cast>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Cast);
+
     if (!ParseExpression<ExpressionParsingPrecedence::FunctionCall>(tokens, ctx, outExpr, tokensConsumed)) return false;
 
     std::string val = tokens[tokensConsumed].value;
@@ -244,14 +305,14 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Cast>(VectorView<To
             Type ot;
             if (!ParseType(tokens.SubView(tokensConsumed + 2), ctx, ot, consumed))
             {
-                ctx.errors.push_back({ "Failed to parse type check.", tokens[tokensConsumed + 2].line, tokens[tokensConsumed + 2].column });
+                ctx.errors.push_back({ "Failed to parse type check.", tokens[tokensConsumed + 2].pos });
                 return false;
             }
             else
             {
                 if (GetExpressionType(outExpr) != ot)
                 {
-                    ctx.errors.push_back({ "Type check failed.", tokens[tokensConsumed + 2].line, tokens[tokensConsumed + 2].column });
+                    ctx.errors.push_back({ "Type check failed.", tokens[tokensConsumed + 2].pos });
                     GetExpressionType(outExpr) = AtomicType::Error;
                 }
                 tokensConsumed += 2 + consumed;
@@ -267,7 +328,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Cast>(VectorView<To
                 ot = GetBinaryReturnType<ExpressionParsingPrecedence::Cast>(BinaryExpressionType::Add, GetExpressionType(outExpr), ot);
                 if (ot == AtomicType::Error)
                 {
-                    ctx.errors.push_back({ "Invalid type cast.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+                    ctx.errors.push_back({ "Invalid type cast.", tokens[tokensConsumed].pos });
                 }
 
                 tokensConsumed += 1 + consumed;
@@ -276,7 +337,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Cast>(VectorView<To
             }
             else
             {
-                ctx.errors.push_back({ "Failed to parse type cast.", tokens[tokensConsumed + 1].line, tokens[tokensConsumed + 1].column });
+                ctx.errors.push_back({ "Failed to parse type cast.", tokens[tokensConsumed + 1].pos });
                 return false;
             }
         }
@@ -289,6 +350,8 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Cast>(VectorView<To
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Exponentiate>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Exponentiate);
+
     if (!ParseExpression<ExpressionParsingPrecedence::Cast>(tokens, ctx, outExpr, tokensConsumed)) return false;
 
     std::string val = tokens[tokensConsumed].value;
@@ -302,7 +365,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Exponentiate>(Vecto
         Type ot = GetBinaryReturnType<ExpressionParsingPrecedence::Exponentiate>(ty, GetExpressionType(outExpr), GetExpressionType(expr));
         if (ot == AtomicType::Error)
         {
-            ctx.errors.push_back({ "Wrong types for '" + val + "' operation.", tokens[0].line, tokens[0].column });
+            ctx.errors.push_back({ "Wrong types for '" + val + "' operation.", tokens[0].pos });
         }
 
         tokensConsumed += 1 + consumed;
@@ -314,6 +377,8 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Exponentiate>(Vecto
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Overload>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Overload);
+
     std::vector<HeapAlloc<Expression>> exprs;
     std::vector<HeapAlloc<Type>> types;
     tokensConsumed = 0;
@@ -338,9 +403,11 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Overload>(VectorVie
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Record>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Record);
+
     std::vector<HeapAlloc<Expression>> exprs;
     std::vector<HeapAlloc<Type>> types;
-    tokensConsumed = 1;
+    tokensConsumed = 0;
 
     do
     {
@@ -362,6 +429,10 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Record>(VectorView<
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::Assignment);
+
+    ParsingContext oldctx = ctx;  // vardef will mess with ctx, so we need to revert upon failure
+
     if (ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(tokens, ctx, outExpr, tokensConsumed))
     {
         if (tokens[tokensConsumed].type == TokenType::Symbol && tokens[tokensConsumed].value == "=")
@@ -370,7 +441,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
             int consumed = 0;
             if (!ParseExpression<ExpressionParsingPrecedence::Assignment>(tokens.SubView(tokensConsumed + 1), ctx, expr, consumed))
             {
-                ctx.errors.push_back({ "Error while parsing assignment.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+                ctx.errors.push_back({ "Error while parsing assignment.", tokens[tokensConsumed].pos });
                 return false;
             }
             else
@@ -379,7 +450,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                 {
                     if (std::get<VariableExpression>(outExpr).stackIndex == -1)
                     {
-                        ctx.errors.push_back({ "Cannot use '_' notation for single variable assignment.", tokens[0].line, tokens[0].column });
+                        ctx.errors.push_back({ "Cannot use '_' notation for single variable assignment.", tokens[0].pos });
                     }
                     else
                     {
@@ -391,7 +462,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                         }
                         else if (ot2 != GetExpressionType(expr))
                         {
-                            ctx.errors.push_back({ "Cannot set variable to an expression of a different type.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+                            ctx.errors.push_back({ "Cannot set variable to an expression of a different type.", tokens[tokensConsumed].pos });
                         }
                     }
                 }
@@ -399,14 +470,14 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                 {
                     if (!std::holds_alternative<RecordType>(GetExpressionType(expr)))
                     {
-                        ctx.errors.push_back({ "Attempted to set multiple variables with a single (non-record) expression.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+                        ctx.errors.push_back({ "Attempted to set multiple variables with a single (non-record) expression.", tokens[tokensConsumed].pos });
                     }
                     else
                     {
                         Type ot2 = GetExpressionType(outExpr);
                         if (std::get<RecordType>(ot2).values.size() != std::get<RecordType>(GetExpressionType(expr)).values.size())
                         {
-                            ctx.errors.push_back({ "Type mismatch during assignment (different number of components).", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+                            ctx.errors.push_back({ "Type mismatch during assignment (different number of components).", tokens[tokensConsumed].pos });
                         }
                         else
                         {
@@ -428,13 +499,13 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                                     isSetting = true;
                                     if (std::get<RecordType>(ot2).values[i].Get() != std::get<RecordType>(GetExpressionType(expr)).values[i].Get())
                                     {
-                                        ctx.errors.push_back({ "Type mismatch during assignment.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+                                        ctx.errors.push_back({ "Type mismatch during assignment.", tokens[tokensConsumed].pos });
                                     }
                                 }
                             }
                             if (!isSetting)
                             {
-                                ctx.errors.push_back({ "Cannot use '_' for every variable in assignment.", tokens[0].line, tokens[0].column });
+                                ctx.errors.push_back({ "Cannot use '_' for every variable in assignment.", tokens[0].pos });
                             }
                         }
                     }
@@ -445,6 +516,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
             }
         }
     }
+    ctx = oldctx;
 
     return ParseExpression<ExpressionParsingPrecedence::Record>(tokens, ctx, outExpr, tokensConsumed);
 }
@@ -452,6 +524,8 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::VarDef>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::VarDef);
+
     if (tokens[0].type == TokenType::Symbol && tokens[0].value == "_")
     {
         outExpr = VariableExpression{ AtomicType::Template, tokens, -1 };
@@ -490,7 +564,7 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::VarDef>(VectorView<
         }
         else if (ctx.varStack[stackPos].second != ot)
         {
-            ctx.errors.push_back({ "Cannot redefine variable to a different type.", tokens[1].line, tokens[1].column });
+            ctx.errors.push_back({ "Cannot redefine variable to a different type.", tokens[1].pos });
         }
 
         tokensConsumed += 1 + consumed;
@@ -502,6 +576,10 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::VarDef>(VectorView<
 
 template<> bool ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(VectorView<Token> tokens, ParsingContext& ctx, Expression& outExpr, int& tokensConsumed)
 {
+    Instrumentation inst(ExpressionParsingPrecedence::MultiVarDef);
+
+    auto oldVS = ctx.varStack;
+
     std::vector<HeapAlloc<Type>> types;
     std::vector<HeapAlloc<Expression>> locs;
 
@@ -513,7 +591,11 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(Vector
     while (tokens[tokensConsumed].type == TokenType::Symbol && tokens[tokensConsumed].value == ",")
     {
         int consumed = 0;
-        if (!ParseExpression<ExpressionParsingPrecedence::VarDef>(tokens.SubView(tokensConsumed + 1), ctx, outExpr, consumed)) return false;
+        if (!ParseExpression<ExpressionParsingPrecedence::VarDef>(tokens.SubView(tokensConsumed + 1), ctx, outExpr, consumed))
+        {
+            ctx.varStack = oldVS;
+            return false;
+        }
         types.push_back({ std::get<VariableExpression>(outExpr).type });
         locs.push_back(outExpr);
         tokensConsumed += 1 + consumed;
@@ -545,7 +627,7 @@ template<> bool ParseStatement<StatementParsingType::Single>(VectorView<Token> t
     if (!ParseExpression(tokens, ctx, expr, tokensConsumed)) return false;
     if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
     {
-        ctx.errors.push_back({ "Missing semicolon in statement." + tokens[tokensConsumed].value, tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        ctx.errors.push_back({ "Missing semicolon in statement." + tokens[tokensConsumed].value, tokens[tokensConsumed].pos });
         return false;
     }
 
@@ -559,7 +641,7 @@ template<> bool ParseStatement<StatementParsingType::If>(VectorView<Token> token
     if (tokens[0].type != TokenType::Text || tokens[0].value != "if") return false;
     if (tokens[1].type != TokenType::Symbol || tokens[1].value != "(")
     {
-        ctx.errors.push_back({ "If statement must have parentheses around the condition.", tokens[1].line, tokens[1].column });
+        ctx.errors.push_back({ "If statement must have parentheses around the condition.", tokens[1].pos });
         return false;
     }
 
@@ -568,7 +650,7 @@ template<> bool ParseStatement<StatementParsingType::If>(VectorView<Token> token
     tokensConsumed += 2;
     if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ")")
     {
-        ctx.errors.push_back({ "If statement must have parentheses around the condition.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        ctx.errors.push_back({ "If statement must have parentheses around the condition.", tokens[tokensConsumed].pos });
         return false;
     }
     tokensConsumed += 1;
@@ -579,7 +661,7 @@ template<> bool ParseStatement<StatementParsingType::If>(VectorView<Token> token
 
     if (GetExpressionType(expr) != AtomicType::Boolean)
     {
-        ctx.errors.push_back({ "If statement conditional must be a boolean.", tokens[2].line, tokens[2].column });
+        ctx.errors.push_back({ "If statement conditional must be a boolean.", tokens[2].pos });
     }
 
     outStatement = IfStatement{ { expr }, { outStatement } };
@@ -591,7 +673,7 @@ template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> toke
     if (tokens[0].type != TokenType::Text || tokens[0].value != "for") return false;
     if (tokens[1].type != TokenType::Symbol || tokens[1].value != "(")
     {
-        ctx.errors.push_back({ "For statement must have parentheses around the arguments.", tokens[1].line, tokens[1].column });
+        ctx.errors.push_back({ "For statement must have parentheses around the arguments.", tokens[1].pos });
         return false;
     }
 
@@ -600,7 +682,7 @@ template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> toke
     tokensConsumed += 2;
     if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
     {
-        ctx.errors.push_back({ "For statement must have 2 semicolons to separate the arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        ctx.errors.push_back({ "For statement must have 2 semicolons to separate the arguments.", tokens[tokensConsumed].pos });
         return false;
     }
     tokensConsumed += 1;
@@ -611,7 +693,7 @@ template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> toke
     tokensConsumed += consumed;
     if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
     {
-        ctx.errors.push_back({ "For statement must have 2 semicolons to separate the arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        ctx.errors.push_back({ "For statement must have 2 semicolons to separate the arguments.", tokens[tokensConsumed].pos });
         return false;
     }
     tokensConsumed += 1;
@@ -621,7 +703,7 @@ template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> toke
     tokensConsumed += consumed;
     if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ")")
     {
-        ctx.errors.push_back({ "For statement must have parentheses around the arguments.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        ctx.errors.push_back({ "For statement must have parentheses around the arguments.", tokens[tokensConsumed].pos });
         return false;
     }
     tokensConsumed += 1;
@@ -631,7 +713,7 @@ template<> bool ParseStatement<StatementParsingType::For>(VectorView<Token> toke
 
     if (GetExpressionType(expr2) != AtomicType::Boolean)
     {
-        ctx.errors.push_back({ "For statement conditional must be a boolean.", tokens[2].line, tokens[2].column });
+        ctx.errors.push_back({ "For statement conditional must be a boolean.", tokens[2].pos });
     }
 
     outStatement = ForStatement{ { expr1 }, { expr2 }, { expr3 }, { outStatement } };
@@ -643,7 +725,7 @@ template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> to
     if (tokens[0].type != TokenType::Text || tokens[0].value != "while") return false;
     if (tokens[1].type != TokenType::Symbol || tokens[1].value != "(")
     {
-        ctx.errors.push_back({ "While statement must have parentheses around the condition.", tokens[1].line, tokens[1].column });
+        ctx.errors.push_back({ "While statement must have parentheses around the condition.", tokens[1].pos });
         return false;
     }
 
@@ -652,7 +734,7 @@ template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> to
     tokensConsumed += 2;
     if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ")")
     {
-        ctx.errors.push_back({ "While statement must have parentheses around the condition.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        ctx.errors.push_back({ "While statement must have parentheses around the condition.", tokens[tokensConsumed].pos });
         return false;
     }
     tokensConsumed += 1;
@@ -663,7 +745,7 @@ template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> to
 
     if (GetExpressionType(expr) != AtomicType::Boolean)
     {
-        ctx.errors.push_back({ "While statement conditional must be a boolean.", tokens[2].line, tokens[2].column });
+        ctx.errors.push_back({ "While statement conditional must be a boolean.", tokens[2].pos });
     }
 
     outStatement = WhileStatement{ { expr }, { outStatement } };
@@ -678,7 +760,7 @@ template<> bool ParseStatement<StatementParsingType::Return>(VectorView<Token> t
     tokensConsumed += 1;
     if (tokens[tokensConsumed].type != TokenType::Symbol || tokens[tokensConsumed].value != ";")
     {
-        ctx.errors.push_back({ "Missing semicolon in return statement.", tokens[tokensConsumed].line, tokens[tokensConsumed].column });
+        ctx.errors.push_back({ "Missing semicolon in return statement.", tokens[tokensConsumed].pos });
         return false;
     }
     tokensConsumed += 1;
@@ -706,10 +788,6 @@ template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> to
     ctx.varStack.erase(ctx.varStack.begin() + stackSize, ctx.varStack.end());
     return true;
 }
-
-
-
-
 
 
 
@@ -801,14 +879,12 @@ int main()
         std::cout << "There were " << pc.errors.size() << " errors." << std::endl;
         for (auto& i : pc.errors)
         {
-            std::cout << "Error (" << i.line << "," << i.column << "): " << i.msg << std::endl;
+            std::cout << "Error (" << i.pos.line << "," << i.pos.column << "): " << i.msg << std::endl;
             int pos = 0;
-            for (int j = 1; j < i.line; j++) j = 1 + temp.find('\n', pos);
-            for (int j = 1; j < i.column; j++) std::cout << ' ';
-            std::cout << "v\n" << temp.substr(pos, temp.find('\n', pos) - pos) << std::endl;
+            for (int j = 1; j < i.pos.line; j++) j = 1 + temp.find('\n', pos);
+            for (int j = 1; j < i.pos.column; j++) std::cout << ' ';
+            std::cout << "v\n" << temp.substr(pos, temp.find('\n', pos) - pos) << "\n" << std::endl;
         }
     }
 }
-
-// TODO: fix { { _, i = (3, "bruh"); i :: string; } i :: string; } input failing
 

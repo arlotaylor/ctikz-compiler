@@ -1,4 +1,5 @@
 #pragma once
+#include "Assertion.h"
 #include <string>
 #include <vector>
 
@@ -17,7 +18,7 @@ struct Token
 {
     TokenType type;
     std::string value;
-    int line; int column;
+    TextPosition pos;
 };
 
 std::vector<Token> Tokenize(std::string str);
