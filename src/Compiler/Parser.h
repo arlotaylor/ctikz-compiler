@@ -207,3 +207,7 @@ template<> bool ParseStatement<StatementParsingType::While>(VectorView<Token> to
 template<> bool ParseStatement<StatementParsingType::Return>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
 template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> tokens, ParsingContext &ctx, Statement &outStatement, int &tokensConsumed);
 
+std::string StatementToString(Statement s);
+std::string ExpressionToString(Expression e);
+std::string TypeToString(Type t);
+

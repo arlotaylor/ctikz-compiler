@@ -57,15 +57,15 @@ RecordType::RecordType(std::vector<HeapAlloc<Type>> v)
     Assert(values.size() > 1, "How did you construct a record with less than two elements?");
 }
 
-LambdaType::LambdaType(HeapAlloc<Type> a, HeapAlloc<Type> r) : arg(a), ret(r), isTemplate(false)
+LambdaType::LambdaType(HeapAlloc<Type> a, HeapAlloc<Type> r) : arg(a), ret(r)
 {
+    bool isTemplate = false;
     if (a.Get() == AtomicType::Template)
     {
         isTemplate = true;
     }
-    else
+    else if (std::holds_alternative<OverloadType>(a.Get()))
     {
-        Assert(std::holds_alternative<OverloadType>(a.Get()));
         for (HeapAlloc<Type>& t : std::get<OverloadType>(a.Get()).values)
         {
             if (t.Get() == AtomicType::Template)
@@ -75,30 +75,45 @@ LambdaType::LambdaType(HeapAlloc<Type> a, HeapAlloc<Type> r) : arg(a), ret(r), i
             }
         }
     }
+
+    if (isTemplate)
+    {
+        temp = TemplateLambda{};
+        ret = { AtomicType::Template };
+    }
 }
 
 
-void LambdaType::CheckArgDef(int instArg, int definition, std::vector<ErrorOutput>& errors)
+void LambdaType::ShareTemplates(Type& other, ParsingContext& pc)
 {
-    VectorView<Token>& vec = definitions[definition];
+    if (!temp.has_value()) return;
+
+    Assert(std::holds_alternative<LambdaType>(other) && std::get<LambdaType>(other).temp.has_value(), "Cannot share templates with a non-template lambda type.");
+    TemplateLambda out = TemplateLambda::AddTL(temp.value(), std::get<LambdaType>(other).temp.value(), pc);
+}
+
+
+void TemplateLambda::CheckArgDef(int instArg, int definition, std::vector<ErrorOutput>& errors)
+{
+    VectorView<Token>& vec = definitions[definition].first;
     Type& a = instantiatedArgs[instArg].Get();
 
-    Assert(vec[0].type == TokenType::Symbol && vec[0].value == "(");
+    Assert(vec[0].type == TokenType::Symbol && vec[0].value == "(", "Checking arg def but the first token is not (.");
     Expression expr = LiteralExpression{ AtomicType::Error, vec };
     int consumed = 0;
-    ParsingContext pc;  // TODO: figure out how to get the right parsing context
-    if (!ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(vec.SubView(1), pc, expr, consumed)) Assert(false);
-    Assert(vec[1+consumed].type == TokenType::Symbol && vec[1+consumed].value == ")");
+    ParsingContext pc = definitions[definition].second.Get();
+    if (!ParseExpression<ExpressionParsingPrecedence::MultiVarDef>(vec.SubView(1), pc, expr, consumed)) Assert(false, "Failed to parse lambda arguments while checking a template argument.");
+    Assert(vec[1+consumed].type == TokenType::Symbol && vec[1+consumed].value == ")", "Checking arg def but the arguments are not enclosed by ).");
 
     if (std::holds_alternative<VariableExpression>(expr))
     {
-        Assert(GetExpressionType(expr) == AtomicType::Template);
+        Assert(GetExpressionType(expr) == AtomicType::Template, "Checking arg def but the lambda is not templated.");
         pc.varStack[std::get<VariableExpression>(expr).stackIndex].second = a;
     }
     else
     {
-        Assert(std::holds_alternative<MultiExpression>(expr));
-        Assert(std::holds_alternative<RecordType>(a) && std::get<RecordType>(a).values.size() == std::get<MultiExpression>(expr).elements.size());
+        Assert(std::holds_alternative<MultiExpression>(expr), "Checking arg def but somehow parsed out a non-multiexpression.");
+        Assert(std::holds_alternative<RecordType>(a) && std::get<RecordType>(a).values.size() == std::get<MultiExpression>(expr).elements.size(), "Parsed multiexpression does not have record type or record does not match in length.");
 
         for (int i = 0; i < std::get<MultiExpression>(expr).elements.size(); i++)
         {
@@ -111,35 +126,110 @@ void LambdaType::CheckArgDef(int instArg, int definition, std::vector<ErrorOutpu
 
     // Parsing context is ready, time to parse
     Statement oStat = SingleStatement{ { LiteralExpression{ AtomicType::Error, vec } } };
-    if (!ParseStatement(vec.SubView(consumed + 2), pc, oStat, consumed)) Assert(false);  // this should be true, because the statement should have already been checked, if not type checked. The important part here is that we add the relevant errors to the parsing context.
+    if (!ParseStatement(vec.SubView(consumed + 2), pc, oStat, consumed)) Assert(false, "Failed to parse lambda, should already be parsed by the template instantiation phase.");  // this should be true, because the statement should have already been checked, if not type checked. The important part here is that we add the relevant errors to the parsing context.
     for (ErrorOutput& err : pc.errors)
     {
         errors.push_back(err);
     }
+
+    while (returnTypes.size() <= instArg) returnTypes.push_back({ ReturnTypeSet{ {}, false } });
+    for (Type& t : GetStatementType(oStat).types)
+    {
+        bool isRepeated = false;
+
+        // TODO: fix the bug this introduces, where the correct returned template lambda instance may not be generated (is this true???)
+        for (Type& s : returnTypes[instArg].Get().types) { if (t == s) { isRepeated = true; break; } }
+        if (isRepeated) continue;
+
+        returnTypes[instArg].Get().types.push_back(t);
+    };
+    if (GetStatementType(oStat).isOptional)
+    {
+        returnTypes[instArg].Get().isOptional = true;
+    }
 }
 
-void LambdaType::AddInstArgs(Type a, std::vector<ErrorOutput>& errors)
+void TemplateLambda::AddInstArgs(Type a, ParsingContext& pc)
 {
-    Assert(isTemplate);
+    for (HeapAlloc<Type>& i : instantiatedArgs)
+    {
+        if (i.Get() == a) return;  // don't check existing types
+    }
 
-    instantiatedArgs.push_back({ a });
+    instantiatedArgs.push_back({ { a } });
+    for (int i = 0; i < definitions.size(); i++)
+    {
+        CheckArgDef(instantiatedArgs.size() - 1, i, pc.errors);
+    }
+}
+
+bool TemplateLambda::CheckAddInstArgs(Type a)
+{
+    for (HeapAlloc<Type>& i : instantiatedArgs)
+    {
+        if (i.Get() == a) return true;  // don't check existing types
+    }
+
+    instantiatedArgs.push_back({ { a } });
+    std::vector<ErrorOutput> errors;
     for (int i = 0; i < definitions.size(); i++)
     {
         CheckArgDef(instantiatedArgs.size() - 1, i, errors);
     }
-}
-
-void LambdaType::AddDefinition(VectorView<Token> tokens, std::vector<ErrorOutput>& errors)
-{
-    Assert(isTemplate);
-
-    definitions.push_back(tokens);
-    for (int i = 0; i < instantiatedArgs.size(); i++)
+    if (errors.size() > 0)
     {
-        CheckArgDef(i, definitions.size() - 1, errors);
+        instantiatedArgs.pop_back();
+        return false;
+    }
+    else
+    {
+        return true;
     }
 }
 
+void TemplateLambda::AddDefinition(VectorView<Token> tokens, ParsingContext& pc)
+{
+    for (std::pair<VectorView<Token>, HeapAlloc<ParsingContext>>& i : definitions)
+    {
+        if (i.first == tokens) return;  // don't check existing functions
+    }
+    definitions.push_back({ tokens, { pc } });
+
+    for (int i = 0; i < instantiatedArgs.size(); i++)
+    {
+        CheckArgDef(i, definitions.size() - 1, pc.errors);
+    }
+}
+
+Type TemplateLambda::GetReturnType(Type a)
+{
+    for (int i = 0; i < instantiatedArgs.size(); i++)
+    {
+        if (a == instantiatedArgs[i].Get())
+        {
+            return returnTypes[i].Get().ToType();
+        }
+    }
+
+    return AtomicType::Error;
+}
+
+TemplateLambda TemplateLambda::AddTL(const TemplateLambda& a, const TemplateLambda& b, ParsingContext& pc)
+{
+    TemplateLambda ret = a;
+    for (auto& i : b.instantiatedArgs)
+    {
+        ret.AddInstArgs(i.Get(), pc);
+    }
+    for (auto& i : b.definitions)
+    {
+        ParsingContext npc = i.second.Get();
+        npc.errors = pc.errors;
+        ret.AddDefinition(i.first, npc);
+        pc.errors = npc.errors;
+    }
+    return ret;
+}
 
 
 bool operator==(const Type& a, const Type& b)
@@ -287,6 +377,58 @@ bool CheckCast(Type from, Type to)
         }
 
         return false;
+    }
+
+    if (std::holds_alternative<LambdaType>(from) && std::holds_alternative<LambdaType>(to))
+    {
+        if (std::get<LambdaType>(from).temp.has_value() && !std::get<LambdaType>(to).temp.has_value())
+        {
+            if (std::get<LambdaType>(from).temp.value().CheckAddInstArgs(std::get<LambdaType>(to).arg.Get()))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool IsTemplateType(Type type)
+{
+    if (std::holds_alternative<AtomicType>(type))
+    {
+        return std::get<AtomicType>(type) == AtomicType::Template;
+    }
+    else if (std::holds_alternative<UnionType>(type))
+    {
+        for (auto t : std::get<UnionType>(type).values)
+        {
+            if (IsTemplateType(t.Get())) return true;
+        }
+    }
+    else if (std::holds_alternative<OverloadType>(type))
+    {
+        for (auto t : std::get<OverloadType>(type).values)
+        {
+            if (IsTemplateType(t.Get())) return true;
+        }
+    }
+    else if (std::holds_alternative<RecordType>(type))
+    {
+        for (auto t : std::get<RecordType>(type).values)
+        {
+            if (IsTemplateType(t.Get())) return true;
+        }
+    }
+    else
+    {
+        Assert(std::holds_alternative<LambdaType>(type), "Encountered unknown type while checking for templates.");
+
+        if (!std::get<LambdaType>(type).temp.has_value())
+        {
+            if (IsTemplateType(std::get<LambdaType>(type).arg.Get())) return true;
+            if (IsTemplateType(std::get<LambdaType>(type).ret.Get())) return true;
+        }
     }
 
     return false;
@@ -444,46 +586,4 @@ bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int
     }
 }
 
-std::string TypeToString(Type t)
-{
-    if (std::holds_alternative<AtomicType>(t)) return "Atom{" + std::to_string((int)std::get<AtomicType>(t)) + "}";
-    if (std::holds_alternative<UnionType>(t))
-    {
-        std::string out = "Union{";
-        for (HeapAlloc<Type>& i : std::get<UnionType>(t).values)
-        {
-            out += TypeToString(i.Get()) + ",";
-        }
-        if (out[out.size() - 1] == ',') out = out.substr(0, out.size() - 1);
-        out += "}";
-        return out;
-    }
-    if (std::holds_alternative<RecordType>(t))
-    {
-        std::string out = "Record{";
-        for (HeapAlloc<Type>& i : std::get<RecordType>(t).values)
-        {
-            out += TypeToString(i.Get()) + ",";
-        }
-        if (out[out.size() - 1] == ',') out = out.substr(0, out.size() - 1);
-        out += "}";
-        return out;
-    }
-    if (std::holds_alternative<OverloadType>(t))
-    {
-        std::string out = "Overload{";
-        for (HeapAlloc<Type>& i : std::get<OverloadType>(t).values)
-        {
-            out += TypeToString(i.Get()) + ",";
-        }
-        if (out[out.size() - 1] == ',') out = out.substr(0, out.size() - 1);
-        out += "}";
-        return out;
-    }
-    if (std::holds_alternative<LambdaType>(t))
-    {
-        return "Lambda{" + TypeToString(std::get<LambdaType>(t).arg.Get()) + "," + TypeToString(std::get<LambdaType>(t).ret.Get()) + "}";
-    }
-    return "huh?";
-}
 

@@ -70,8 +70,10 @@ struct Instrumentation
     Instrumentation(ExpressionParsingPrecedence ep)
         : prec(ep)
     {
+#ifndef RUN_TESTS
         for (int i = 0; i < depth; i++) std::cout << "  ";
         std::cout << EXPRESSION_PREC_NAMES[(int)prec] << '\n';
+#endif
         depth++;
     }
     ~Instrumentation()
@@ -197,8 +199,14 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Lambda>(VectorView<
             ctx.errors.push_back({ "Error in lambda body.", tokens[tokensConsumed].pos });
             return false;
         }
+        ctx.varStack.erase(ctx.varStack.begin() + varStackSize, ctx.varStack.end());
+
         tokensConsumed += consumed;
         outExpr = LambdaExpression{ LambdaType{ { GetExpressionType(outExpr) }, { GetStatementType(stat).ToType() } }, tokens, { outExpr }, { stat } };
+        if (std::get<LambdaType>(GetExpressionType(outExpr)).temp.has_value())
+        {
+            std::get<LambdaType>(GetExpressionType(outExpr)).temp.value().AddDefinition(tokens, ctx);
+        }
         return true;
     }
     else
@@ -303,10 +311,22 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::FunctionCall>(Vecto
         {
             return false;
         }
-        else if (!std::holds_alternative<LambdaType>(GetExpressionType(outExpr)))
+        else if (!std::holds_alternative<LambdaType>(GetExpressionType(outExpr)))  // TODO: make overloads of lambdas callable
         {
             ctx.errors.push_back({ "Cannot call a non-lambda type.", tokens[tokensConsumed].pos });
             GetExpressionType(outExpr) = AtomicType::Error;
+        }
+        else if (std::get<LambdaType>(GetExpressionType(outExpr)).temp.has_value())
+        {
+            if (IsTemplateType(GetExpressionType(expr)))
+            {
+                GetExpressionType(outExpr) = AtomicType::Template;
+            }
+            else
+            {
+                std::get<LambdaType>(GetExpressionType(outExpr)).temp.value().AddInstArgs(GetExpressionType(expr), ctx);
+                outExpr = BinaryExpression{ std::get<LambdaType>(GetExpressionType(outExpr)).temp.value().GetReturnType(GetExpressionType(expr)), tokens, BinaryExpressionType::FunctionCall, { outExpr }, { expr } };
+            }
         }
         else if (std::get<LambdaType>(GetExpressionType(outExpr)).arg.Get() != GetExpressionType(expr))
         {
@@ -500,6 +520,10 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                         {
                             ctx.errors.push_back({ "Cannot set variable to an expression of a different type.", tokens[tokensConsumed].pos });
                         }
+                        else if (std::holds_alternative<LambdaType>(ot2) && std::get<LambdaType>(ot2).temp.has_value())
+                        {
+                            std::get<LambdaType>(ot2).ShareTemplates(GetExpressionType(expr), ctx);
+                        }
                     }
                 }
                 else  // outExpr must be a MultiVar
@@ -536,6 +560,10 @@ template<> bool ParseExpression<ExpressionParsingPrecedence::Assignment>(VectorV
                                     if (std::get<RecordType>(ot2).values[i].Get() != std::get<RecordType>(GetExpressionType(expr)).values[i].Get())
                                     {
                                         ctx.errors.push_back({ "Type mismatch during assignment.", tokens[tokensConsumed].pos });
+                                    }
+                                    else if (std::holds_alternative<LambdaType>(std::get<RecordType>(ot2).values[i].Get()) && std::get<LambdaType>(std::get<RecordType>(ot2).values[i].Get()).temp.has_value())
+                                    {
+                                        std::get<LambdaType>(std::get<RecordType>(ot2).values[i].Get()).ShareTemplates(std::get<RecordType>(GetExpressionType(expr)).values[i].Get(), ctx);
                                     }
                                 }
                             }
@@ -831,7 +859,18 @@ template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> to
         statements.push_back({ outStatement });
         tokensConsumed += consumed;
 
-        returnTypes.insert(returnTypes.end(), GetStatementType(outStatement).types.begin(), GetStatementType(outStatement).types.end());
+        // need to make sure that returnTypes has no duplicates
+        for (Type& t : GetStatementType(outStatement).types)
+        {
+            bool isRepeated = false;
+
+            // TODO: fix the bug this introduces, where the correct returned template lambda instance may not be generated (is this true???)
+            for (Type& s : returnTypes) { if (t == s) { isRepeated = true; break; } }
+            if (isRepeated) continue;
+
+            returnTypes.push_back(t);
+        }
+
         if (!GetStatementType(outStatement).isOptional) definiteReturnTypes++;
     }
     tokensConsumed += 1;
@@ -841,7 +880,61 @@ template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> to
 }
 
 
-std::string StatementToString(Statement s);
+
+
+
+
+namespace ToStringVectors
+{
+    const std::vector<std::string> MULTI_EXPRESSION = {"Variables", "Record", "Overload"};
+    const std::vector<std::string> BINARY_EXPRESSION = {"Assignment", "BooleanOr", "BooleanAnd", "NotEquals", "Equals", "Less", "Greater", "LEq", "GEq", "Add", "Subtract", "Multiply", "Divide", "Modulus", "Exponentiate", "FunctionCall"};
+    const std::vector<std::string> UNARY_EXPRESSION = {"Cast", "Not", "Minus", "Plus"};
+    const std::vector<std::string> ATOMIC_EXPRESSION = {"Error", "Void", "Template", "Integer", "Double", "String", "Boolean"};
+}
+
+
+std::string TypeToString(Type t)
+{
+    if (std::holds_alternative<AtomicType>(t)) return "Atom{" + ToStringVectors::ATOMIC_EXPRESSION[(int)std::get<AtomicType>(t)] + "}";
+    if (std::holds_alternative<UnionType>(t))
+    {
+        std::string out = "Union{";
+        for (HeapAlloc<Type>& i : std::get<UnionType>(t).values)
+        {
+            out += TypeToString(i.Get()) + ",";
+        }
+        if (out[out.size() - 1] == ',') out = out.substr(0, out.size() - 1);
+        out += "}";
+        return out;
+    }
+    if (std::holds_alternative<RecordType>(t))
+    {
+        std::string out = "Record{";
+        for (HeapAlloc<Type>& i : std::get<RecordType>(t).values)
+        {
+            out += TypeToString(i.Get()) + ",";
+        }
+        if (out[out.size() - 1] == ',') out = out.substr(0, out.size() - 1);
+        out += "}";
+        return out;
+    }
+    if (std::holds_alternative<OverloadType>(t))
+    {
+        std::string out = "Overload{";
+        for (HeapAlloc<Type>& i : std::get<OverloadType>(t).values)
+        {
+            out += TypeToString(i.Get()) + ",";
+        }
+        if (out[out.size() - 1] == ',') out = out.substr(0, out.size() - 1);
+        out += "}";
+        return out;
+    }
+    if (std::holds_alternative<LambdaType>(t))
+    {
+        return "Lambda{" + TypeToString(std::get<LambdaType>(t).arg.Get()) + "," + TypeToString(std::get<LambdaType>(t).ret.Get()) + "}";
+    }
+    return "huh?";
+}
 
 std::string ExpressionToString(Expression e)
 {
@@ -863,7 +956,7 @@ std::string ExpressionToString(Expression e)
     }
     else if (std::holds_alternative<MultiExpression>(e))
     {
-        std::string ret = "MultiExp{" + std::to_string((int)std::get<MultiExpression>(e).exprType);
+        std::string ret = "MultiExp{" + ToStringVectors::MULTI_EXPRESSION[(int)std::get<MultiExpression>(e).exprType];
         for (HeapAlloc<Expression>& i : std::get<MultiExpression>(e).elements)
         {
             ret += ExpressionToString(i.Get()) + ",";
@@ -874,11 +967,11 @@ std::string ExpressionToString(Expression e)
     }
     else if (std::holds_alternative<BinaryExpression>(e))
     {
-        return "BinaryExp{" + std::to_string((int)std::get<BinaryExpression>(e).exprType) + "," + ExpressionToString(std::get<BinaryExpression>(e).a.Get()) + "," + ExpressionToString(std::get<BinaryExpression>(e).b.Get()) + ",type:" + type + "}";
+        return "BinaryExp{" + ToStringVectors::BINARY_EXPRESSION[(int)std::get<BinaryExpression>(e).exprType] + "," + ExpressionToString(std::get<BinaryExpression>(e).a.Get()) + "," + ExpressionToString(std::get<BinaryExpression>(e).b.Get()) + ",type:" + type + "}";
     }
     else
     {
-        return "UnaryExp{" + std::to_string((int)std::get<UnaryExpression>(e).exprType) + "," + ExpressionToString(std::get<UnaryExpression>(e).a.Get()) + ",type:" + type + "}";
+        return "UnaryExp{" + ToStringVectors::UNARY_EXPRESSION[(int)std::get<UnaryExpression>(e).exprType] + "," + ExpressionToString(std::get<UnaryExpression>(e).a.Get()) + ",type:" + type + "}";
     }
 }
 
@@ -915,6 +1008,9 @@ std::string StatementToString(Statement s)
     }
 }
 
+#ifndef RUN_TESTS
+#ifndef CREATE_TESTS
+
 int main()
 {
     while (true)
@@ -943,4 +1039,7 @@ int main()
         }
     }
 }
+
+#endif
+#endif
 

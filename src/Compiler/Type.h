@@ -2,6 +2,7 @@
 #include "Assertion.h"
 #include "Lexer.h"
 #include <variant>
+#include <optional>
 #include <vector>
 #include <map>
 
@@ -27,6 +28,8 @@ struct VectorView
     inline VectorView(std::vector<T>& v, int b) : vec(v), begin(b) {}
     inline VectorView(const VectorView<T>& other) : vec(other.vec), begin(other.begin) {}
     inline VectorView<T>& operator=(const VectorView<T>& other) { vec = other.vec; begin = other.begin; return *this; }
+
+    inline bool operator==(VectorView<T> other) { return begin == other.begin && &vec == &other.vec; }
 };
 
 template<typename T>
@@ -90,20 +93,32 @@ struct RecordType
     RecordType(std::vector<HeapAlloc<Type>> v);
 };
 
+struct ParsingContext; struct ReturnTypeSet;
+
+struct TemplateLambda
+{
+    std::vector<HeapAlloc<Type>> instantiatedArgs;
+    std::vector<std::pair<VectorView<Token>, HeapAlloc<ParsingContext>>> definitions;
+    std::vector<HeapAlloc<ReturnTypeSet>> returnTypes;
+
+    void CheckArgDef(int instArg, int definition, std::vector<ErrorOutput>& errors);
+    void AddInstArgs(Type a, ParsingContext& pc);
+    bool CheckAddInstArgs(Type a);
+    void AddDefinition(VectorView<Token> tokens, ParsingContext& pc);
+    Type GetReturnType(Type a);
+
+    static TemplateLambda AddTL(const TemplateLambda& a, const TemplateLambda& b, ParsingContext& pc);
+};
+
 struct LambdaType
 {
     HeapAlloc<Type> arg;
     HeapAlloc<Type> ret;
-    bool isTemplate;
-    std::vector<HeapAlloc<Type>> instantiatedArgs;
-    std::vector<VectorView<Token>> definitions;
-    // TODO: track the return types of every combination, then add that stuff to CheckCast
-
-    void CheckArgDef(int instArg, int definition, std::vector<ErrorOutput>& errors);
-    void AddInstArgs(Type a, std::vector<ErrorOutput>& errors);
-    void AddDefinition(VectorView<Token> tokens, std::vector<ErrorOutput>& errors);
+    std::optional<TemplateLambda> temp;
 
     LambdaType(HeapAlloc<Type> a, HeapAlloc<Type> r);
+
+    void ShareTemplates(Type& other, ParsingContext& pc);
 };
 
 bool operator==(const Type& a, const Type& b);
@@ -111,6 +126,7 @@ bool operator!=(const Type& a, const Type& b);
 
 bool CheckCast(Type from, Type to);
 
+bool IsTemplateType(Type type);  // Does not count template lambdas, only template arguments and their compositions.
 
 struct ParsingContext
 {
@@ -125,6 +141,4 @@ enum class TypeParsingPrecedence
 };
 
 bool ParseType(VectorView<Token> tokens, ParsingContext& ctx, Type& outType, int& tokensConsumed, TypeParsingPrecedence tp = TypeParsingPrecedence::Bracket);
-
-std::string TypeToString(Type t);
 
