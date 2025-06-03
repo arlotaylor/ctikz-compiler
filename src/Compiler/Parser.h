@@ -140,6 +140,7 @@ struct ScopeStatement
 {
     std::vector<HeapAlloc<Statement>> vec;
     ReturnTypeSet type = {};
+    std::vector<std::pair<std::string, Type>> ctx;
 };
 
 struct ForStatement

@@ -874,7 +874,7 @@ template<> bool ParseStatement<StatementParsingType::Scope>(VectorView<Token> to
         if (!GetStatementType(outStatement).isOptional) definiteReturnTypes++;
     }
     tokensConsumed += 1;
-    outStatement = ScopeStatement{ statements, { returnTypes, definiteReturnTypes == 0 } };
+    outStatement = ScopeStatement{ statements, { returnTypes, definiteReturnTypes == 0 }, { ctx.varStack.begin() + stackSize, ctx.varStack.end() } };
     ctx.varStack.erase(ctx.varStack.begin() + stackSize, ctx.varStack.end());
     return true;
 }
